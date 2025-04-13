@@ -326,40 +326,6 @@ const HomeScreenComponent = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  // Timer functionality
-  const startTimer = useCallback(() => {
-    if (timerActive) return;
-
-    setTimerActive(true);
-    const interval = setInterval(() => {
-      setTimerSeconds((prev) => prev + 1);
-    }, 1000);
-
-    setTimerInterval(interval);
-  }, [timerActive]);
-
-  const stopTimer = useCallback(() => {
-    if (!timerActive) return;
-
-    if (timerInterval) {
-      clearInterval(timerInterval);
-    }
-
-    setTimerActive(false);
-    setSteepTimeSeconds(timerSeconds);
-    setTimerInterval(null);
-  }, [timerActive, timerInterval, timerSeconds]);
-
-  const resetTimer = useCallback(() => {
-    if (timerInterval) {
-      clearInterval(timerInterval);
-    }
-
-    setTimerActive(false);
-    setTimerSeconds(0);
-    setTimerInterval(null);
-  }, [timerInterval]);
-
   // Clean up interval on unmount
   useEffect(() => {
     return () => {
@@ -396,7 +362,7 @@ const HomeScreenComponent = () => {
     <SafeAreaView className="flex-1 bg-soft-off-white" edges={["top", "left", "right"]}>
       <ScrollView
         className="flex-1 px-3"
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingBottom: 100 }}
         keyboardShouldPersistTaps="handled"
       >
         <View className="bg-soft-off-white rounded-xl border border-pale-gray mb-6 mx-0 shadow-cool-gray-green/10 shadow-md elevation-2">
@@ -425,21 +391,6 @@ const HomeScreenComponent = () => {
                 style={{ height: 40 }}
                 tapToSeek={true}
               />
-
-              {timerActive ? (
-                <View className="flex-row justify-center mt-2 space-x-3">
-                  <Button onPress={stopTimer} className="bg-cool-gray-green flex-1">
-                    <Text className="text-white font-semibold">Stop Timer</Text>
-                  </Button>
-                  <Button onPress={resetTimer} className="bg-pale-gray flex-1">
-                    <Text className="text-charcoal font-semibold">Reset</Text>
-                  </Button>
-                </View>
-              ) : (
-                <Button onPress={startTimer} className="bg-muted-sage-green mt-2">
-                  <Text className="text-charcoal font-semibold">Start Timer</Text>
-                </Button>
-              )}
             </View>
 
             <View className="flex-row justify-between items-center mb-4">
