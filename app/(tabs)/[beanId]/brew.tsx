@@ -72,6 +72,7 @@ interface Brew {
   notes: string;
   brewDevice?: string;
   grinder?: string;
+  roastedDate: number;
 }
 
 interface StoredBean {
@@ -109,6 +110,7 @@ const HomeScreenComponent = () => {
     useBloom?: string;
     bloomTime?: string;
     fromSuggestion?: string;
+    roastedDate?: string;
   }>();
   const [beanName, setBeanName] = useState<string | null>(null);
   const [steepTimeSeconds, setSteepTimeSeconds] = useState(180);
@@ -351,6 +353,8 @@ const HomeScreenComponent = () => {
       return;
     }
 
+    const roastedDateTimestamp = params.roastedDate ? parseInt(params.roastedDate) : Date.now();
+
     const newBrew: Brew = {
       id: Date.now().toString(),
       timestamp: Date.now(),
@@ -364,6 +368,7 @@ const HomeScreenComponent = () => {
       notes,
       brewDevice: selectedBrewDevice || undefined,
       grinder: selectedGrinder || undefined,
+      roastedDate: roastedDateTimestamp,
     };
     console.log("[handleSaveBrew] Saving newBrew object:", newBrew);
 

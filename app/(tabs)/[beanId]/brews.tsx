@@ -1,23 +1,26 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { FlatList, View, RefreshControl, TouchableOpacity, Modal, StyleSheet, Text } from 'react-native';
+import { FlatList, View, RefreshControl, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // import { Card, /*Text,*/ Divider } from '@rneui/themed'; // Removed import
-import { getBrewSuggestions, Brew } from '../../../lib/openai';
+import { Brew } from '../../../lib/openai';
 // import type { BrewSuggestionResponse } from '../../../lib/openai'; // Import the response type
 import BeanNameHeader from '../../../components/BeanNameHeader';
-// --- Tailwind ---
-import resolveConfig from 'tailwindcss/resolveConfig';
-import tailwindConfig from '../../../tailwind.config.js'; // Adjust path
+import dayjs from 'dayjs'; // Import dayjs
 import { Text as CustomText } from '../../../components/ui/text'; // Import custom Text component
-
-const fullConfig = resolveConfig(tailwindConfig);
-const themeColors = (fullConfig.theme?.colors ?? {}) as Record<string, string>; 
-// --- End Tailwind ---
 
 // Storage keys
 const BREWS_STORAGE_KEY = '@GoodCup:brews';
+
+// Helper function to calculate age in days
+const calculateAgeDays = (roastTimestamp?: number, brewTimestamp?: number): number | null => {
+  if (!roastTimestamp || !brewTimestamp) return null;
+  const roastDate = dayjs(roastTimestamp);
+  const brewDate = dayjs(brewTimestamp);
+  if (!roastDate.isValid() || !brewDate.isValid()) return null;
+  return brewDate.diff(roastDate, 'day');
+};
 
 // Helper function to format seconds into MM:SS (same as in HomeScreen)
 const formatTime = (totalSeconds: number): string => {
@@ -103,49 +106,70 @@ export default function BrewsScreen() {
     console.log("Brew selected:", brew.id);
   };
 
-  const renderBrewItem = ({ item }: { item: Brew }) => (
-    <TouchableOpacity onPress={() => handleBrewPress(item)} activeOpacity={0.7}>
-       <View className="rounded-lg mb-3 p-4 bg-soft-off-white border border-pale-gray shadow-sm">
-         <View className="flex-row justify-between mb-2">
-           <CustomText className="text-sm font-medium text-cool-gray-green">
-             {formatDate(item.timestamp)}
-           </CustomText>
-           <CustomText className="text-sm font-semibold text-charcoal">
-             {item.rating}/10
-           </CustomText>
-         </View>
-         
-         <View className="h-px bg-pale-gray mb-3" />
-         
-         <CustomText className="text-sm text-charcoal mb-1">
-           Steep time: {formatTime(item.steepTime)}
-         </CustomText>
-         
-         <CustomText className="text-sm text-charcoal mb-1">
-           Grind: {item.grindSize || 'Not specified'}
-         </CustomText>
-         
-         <CustomText className="text-sm text-charcoal mb-1">
-           Temp: {item.waterTemp || 'Not specified'}
-         </CustomText>
-         
-         {item.useBloom && (
-           <CustomText className="text-sm text-charcoal mb-1">
-             Bloom: {item.bloomTime || 'Yes'}
-           </CustomText>
-         )}
-         
-         {item.notes && (
-           <>
-             <View className="h-px bg-pale-gray my-2" />
-             <CustomText className="text-sm text-charcoal italic">
-               {item.notes}
+  const renderBrewItem = ({ item }: { item: Brew }) => {
+    // Calculate roast age
+    const roastAge = calculateAgeDays(item.roastedDate, item.timestamp);
+
+    return (
+      <TouchableOpacity onPress={() => handleBrewPress(item)} activeOpacity={0.7}>
+         <View className="rounded-lg mb-3 p-4 bg-soft-off-white border border-pale-gray shadow-sm">
+           <View className="flex-row justify-between mb-2 items-center">
+             {/* Wrap date and age together */}
+             <View className="flex-row items-center">
+                <CustomText className="text-sm font-medium text-cool-gray-green">
+                  {formatDate(item.timestamp)}
+                </CustomText>
+                {/* Display Roast Age if available */} 
+                {roastAge !== null && (
+                  <CustomText className="text-xs font-medium text-cool-gray-green ml-1.5">
+                    {`(${roastAge} day${roastAge === 1 ? '' : 's'} old)`} 
+                  </CustomText>
+                )}
+              </View>
+             <CustomText className="text-sm font-semibold text-charcoal">
+               {item.rating}/10
              </CustomText>
-           </>
-         )}
-       </View>
-    </TouchableOpacity>
-  );
+           </View>
+           
+           <View className="h-px bg-pale-gray mb-3" />
+           
+           {/* Display Roasted Date if available */} 
+           {item.roastedDate && (
+             <CustomText className="text-xs text-cool-gray-green mb-2">
+                 Roasted: {formatDate(item.roastedDate)}
+             </CustomText>
+           )}
+
+           <CustomText className="text-sm text-charcoal mb-1">
+             Steep time: {formatTime(item.steepTime)}
+           </CustomText>
+           
+           <CustomText className="text-sm text-charcoal mb-1">
+             Grind: {item.grindSize || 'Not specified'}
+           </CustomText>
+           
+           <CustomText className="text-sm text-charcoal mb-1">
+             Temp: {item.waterTemp || 'Not specified'}
+           </CustomText>
+           
+           {item.useBloom && (
+             <CustomText className="text-sm text-charcoal mb-1">
+               Bloom: {item.bloomTime || 'Yes'}
+             </CustomText>
+           )}
+           
+           {item.notes && (
+             <>
+               <View className="h-px bg-pale-gray my-2" />
+               <CustomText className="text-sm text-charcoal italic">
+                 {item.notes}
+               </CustomText>
+             </>
+           )}
+         </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-soft-off-white" edges={['top', 'left', 'right']}>

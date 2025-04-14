@@ -15,6 +15,7 @@ export interface Brew {
   notes: string;
   brewDevice?: string;
   grinder?: string;
+  roastedDate?: number;
 }
 
 // Interface for the structured JSON response from suggestion API calls
