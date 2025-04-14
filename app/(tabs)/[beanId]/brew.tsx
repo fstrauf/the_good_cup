@@ -295,22 +295,36 @@ const HomeScreenComponent = () => {
       });
 
       // Set default selections if available AND if the default device/grinder still exists
-      if (defaultDeviceId && devices.some((d) => d.id === defaultDeviceId)) {
-        console.log("[LoadEquipment] Setting default brew device state:", defaultDeviceId);
-        setSelectedBrewDevice(defaultDeviceId);
-      } else if (defaultDeviceId) {
-        console.warn("[LoadEquipment] Saved default brew device not found in current list:", defaultDeviceId);
+      if (defaultDeviceId) {
+        console.log(`[LoadEquipment] Found default Device ID in storage: ${defaultDeviceId}`);
+        if (devices.some(d => d.id === defaultDeviceId)) {
+          console.log("[LoadEquipment] Default device found in loaded list. Setting state...");
+          setSelectedBrewDevice(defaultDeviceId);
+        } else {
+          console.warn("[LoadEquipment] Saved default brew device ID not found in current device list.");
+        }
+      } else {
+        console.log("[LoadEquipment] No default brew device ID found in storage.");
       }
-
-      if (defaultGrinderId && grinders.some((g) => g.id === defaultGrinderId)) {
-        console.log("[LoadEquipment] Setting default grinder state:", defaultGrinderId);
-        setSelectedGrinder(defaultGrinderId);
-      } else if (defaultGrinderId) {
-        console.warn("[LoadEquipment] Saved default grinder not found in current list:", defaultGrinderId);
+      
+      if (defaultGrinderId) {
+        console.log(`[LoadEquipment] Found default Grinder ID in storage: ${defaultGrinderId}`);
+        if (grinders.some(g => g.id === defaultGrinderId)) {
+          console.log("[LoadEquipment] Default grinder found in loaded list. Setting state...");
+          setSelectedGrinder(defaultGrinderId);
+        } else {
+          console.warn("[LoadEquipment] Saved default grinder ID not found in current grinder list.");
+        }
+      } else {
+        console.log("[LoadEquipment] No default grinder ID found in storage.");
       }
     } catch (error) {
       console.error("[LoadEquipment] Error loading equipment:", error);
     }
+
+    // Before the return statement, add logs for the state values
+    console.log("[Render] Final selectedBrewDevice state:", selectedBrewDevice);
+    console.log("[Render] Final selectedGrinder state:", selectedGrinder);
   };
 
   // Add useEffect to log state changes accurately

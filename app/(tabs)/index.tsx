@@ -25,6 +25,14 @@ import { Plus, Camera, Image as LucideImage, X, Coffee, XCircle, Mountain } from
 import { cn } from "../../lib/utils";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
+// --- Tailwind --- 
+import resolveConfig from 'tailwindcss/resolveConfig';
+import tailwindConfig from '../../tailwind.config.js';
+
+const fullConfig = resolveConfig(tailwindConfig);
+const themeColors = (fullConfig.theme?.extend?.colors ?? fullConfig.theme?.colors ?? {}) as Record<string, string>; 
+// --- End Tailwind ---
+
 // Storage keys
 const BEANS_STORAGE_KEY = "@GoodCup:beans";
 const BREWS_STORAGE_KEY = "@GoodCup:brews";
@@ -407,24 +415,16 @@ export default function BeansScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
       >
         <View className="flex-1 bg-soft-off-white">
-          <View className="mx-3 mt-3 mb-2 rounded-xl p-4 bg-white border border-[#E7E7E7] shadow-sm">
+          <View className="mx-3 mt-3 mb-2 rounded-xl p-4 bg-soft-off-white border border-pale-gray shadow-sm">
             <View className="flex-row items-center justify-between">
               <Text className="text-2xl font-semibold text-charcoal">Coffee Beans</Text>
               <Button
                 variant={showAddForm ? "outline" : "default"}
                 size="sm"
                 onPress={() => setShowAddForm(!showAddForm)}
-                className={showAddForm ? "bg-stone-200 border-stone-300" : "bg-charcoal"}
+                className={showAddForm ? "bg-light-beige border-pebble-gray" : "bg-muted-sage-green"}
               >
-                <Plus
-                  className={cn(
-                    "mr-2",
-                    showAddForm ? "text-charcoal" : "text-primary-foreground"
-                  )}
-                  size={18}
-                  strokeWidth={2.5}
-                />
-                <Text className={showAddForm ? "text-charcoal" : "text-primary-foreground"}>
+                <Text className="text-charcoal">
                   {showAddForm ? "Cancel" : "Add Bean"}
                 </Text>
               </Button>
@@ -458,7 +458,7 @@ export default function BeansScreen() {
                           variant="outline"
                           size="sm"
                           onPress={takePhoto}
-                          className="bg-stone-200 border-stone-300 flex-row items-center"
+                          className="bg-light-beige border-pebble-gray flex-row items-center"
                         >
                           <Camera size={16} className="text-charcoal mr-1.5" strokeWidth={2} />
                           <Text className="text-charcoal text-sm">Camera</Text>
@@ -467,7 +467,7 @@ export default function BeansScreen() {
                           variant="outline"
                           size="sm"
                           onPress={pickImage}
-                          className="bg-stone-200 border-stone-300 flex-row items-center"
+                          className="bg-light-beige border-pebble-gray flex-row items-center"
                         >
                           <LucideImage size={16} className="text-charcoal mr-1.5" strokeWidth={2} />
                           <Text className="text-charcoal text-sm">Gallery</Text>
@@ -475,33 +475,33 @@ export default function BeansScreen() {
                       </View>
                       {analyzing && (
                         <View className="absolute top-0 left-0 right-0 bottom-0 bg-charcoal/70 rounded-lg justify-center items-center">
-                          <ActivityIndicator size="large" color="#A8B9AE" />
+                          <ActivityIndicator size="large" color="#D4E2D4" />
                           <Text className="mt-3 text-soft-off-white font-medium">Analyzing photo...</Text>
                         </View>
                       )}
                     </View>
-                    <View className="h-px bg-[#E7E7E7] my-4" />
+                    <View className="h-px bg-pale-gray my-4" />
                     <View className="mb-2">
-                      <Text className="text-sm font-semibold text-[#A8B9AE] mb-1.5 ml-2.5">Bean Name</Text>
+                      <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Bean Name</Text>
                       <TextInput
                         value={newBean.name}
                         onChangeText={(text: string) => setNewBean({ ...newBean, name: text })}
                         placeholder="e.g., Ethiopia Yirgacheffe"
                         style={styles.inputStyle}
-                        placeholderTextColor="#A8B9AE"
+                        placeholderTextColor={themeColors['cool-gray-green']}
                       />
                     </View>
                     <View className="mb-2 mt-4">
-                      <Text className="text-sm font-semibold text-[#A8B9AE] mb-1.5 ml-2.5">Roast Level</Text>
+                      <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Roast Level</Text>
                       <Select
                         value={newBean.roastLevel ? { value: newBean.roastLevel, label: newBean.roastLevel } : undefined}
                         onValueChange={(option) => option && setNewBean({ ...newBean, roastLevel: option.value })}
                         disabled={true}
                       >
-                        <SelectTrigger className="border-[#DADADA] bg-[#FAFAF9] h-[50px]">
+                        <SelectTrigger className="border-pebble-gray bg-soft-off-white h-[50px]">
                           <SelectValue 
-                            className="text-[#4A4A4A]" 
-                            placeholder="Select roast level (Disabled)" 
+                            className="text-charcoal" 
+                            placeholder="Select roast level (Auto-filled)" 
                           />
                         </SelectTrigger>
                         <SelectContent>
@@ -516,7 +516,7 @@ export default function BeansScreen() {
                       </Select>
                     </View>
                     <View className="mb-2 mt-4">
-                      <Text className="text-sm font-semibold text-[#A8B9AE] mb-1.5 ml-2.5">Flavor Notes (comma separated)</Text>
+                      <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Flavor Notes (comma separated)</Text>
                       <TextInput
                         value={newBean.flavorNotes?.join(", ")}
                         onChangeText={(text: string) =>
@@ -530,11 +530,11 @@ export default function BeansScreen() {
                         }
                         placeholder="e.g., Blueberry, Chocolate, Citrus"
                         style={styles.inputStyle}
-                        placeholderTextColor="#A8B9AE"
+                        placeholderTextColor={themeColors['cool-gray-green']}
                       />
                     </View>
                     <View className="mb-2 mt-4">
-                      <Text className="text-sm font-semibold text-[#A8B9AE] mb-1.5 ml-2.5">Description</Text>
+                      <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Description</Text>
                       <TextInput
                         value={newBean.description}
                         onChangeText={(text: string) => setNewBean({ ...newBean, description: text })}
@@ -542,7 +542,7 @@ export default function BeansScreen() {
                         multiline
                         numberOfLines={3}
                         style={[styles.inputStyle, { minHeight: 80, textAlignVertical: "top", paddingTop: 10 }]}
-                        placeholderTextColor="#A8B9AE"
+                        placeholderTextColor={themeColors['cool-gray-green']}
                       />
                     </View>
                   </View>
@@ -553,7 +553,7 @@ export default function BeansScreen() {
                   variant="default"
                   size="default"
                   onPress={addBean}
-                  className="bg-lime-200 h-12"
+                  className="bg-muted-sage-green h-12"
                   disabled={loading}
                 >
                   {loading ? (
@@ -567,8 +567,8 @@ export default function BeansScreen() {
           ) : (
             <ScrollView className="flex-1 px-3 pt-2">
               {beans.length === 0 ? (
-                <View className="mx-0 my-4 rounded-xl p-6 items-center bg-white border border-[#E7E7E7]">
-                  <Coffee size={40} color="#A8B9AE" />
+                <View className="mx-0 my-4 rounded-xl p-6 items-center bg-soft-off-white border border-pale-gray">
+                  <Coffee size={40} color={themeColors['cool-gray-green']} />
                   <Text className="text-lg font-semibold text-charcoal mt-3 mb-2">No beans added yet</Text>
                   <Text className="text-sm text-cool-gray-green text-center">
                     Add your first coffee bean using the 'Add Bean' button above.
@@ -578,7 +578,7 @@ export default function BeansScreen() {
                 beans.map((bean) => (
                   <View
                     key={bean.id}
-                    className="mx-0 mb-4 rounded-xl p-0 bg-white border border-[#E7E7E7] shadow-sm"
+                    className="mx-0 mb-4 rounded-xl p-0 bg-soft-off-white border border-pale-gray shadow-sm overflow-hidden"
                   >
                     <View className="flex-row p-4">
                       {bean.photo ? (
@@ -588,7 +588,7 @@ export default function BeansScreen() {
                         />
                       ) : (
                         <View className="w-20 h-20 rounded-lg bg-light-beige justify-center items-center border border-dashed border-pebble-gray">
-                          <Mountain size={30} color="#A8B9AE" />
+                          <Mountain size={30} color={themeColors['cool-gray-green']} />
                         </View>
                       )}
                       <View className="flex-1 ml-4">
@@ -597,10 +597,10 @@ export default function BeansScreen() {
                             {bean.name}
                           </Text>
                           <TouchableOpacity onPress={() => deleteBean(bean.id)} className="p-1 -mt-1 -mr-1">
-                            <XCircle size={22} color="#A8B9AE" />
+                            <XCircle size={22} color={themeColors['cool-gray-green']} />
                           </TouchableOpacity>
                         </View>
-                        <View className="h-px bg-[#E7E7E7] my-2" />
+                        <View className="h-px bg-pale-gray my-2" />
                         <View className="flex-1">
                           <Text className="text-sm text-charcoal mb-0.5">
                             Roast: <Text className="font-medium">{bean.roastLevel || "Unknown"}</Text>
@@ -631,7 +631,7 @@ export default function BeansScreen() {
                         </View>
                       </View>
                     </View>
-                    <View className="flex-row justify-around items-center mt-2 pt-3 pb-2 border-t border-pale-gray bg-soft-off-white/50 rounded-b-lg">
+                    <View className="flex-row justify-around items-center mt-2 pt-3 pb-2 border-t border-pale-gray bg-light-beige/50">
                       <TouchableOpacity
                         className="flex-1 items-center px-1 py-1"
                         onPress={() =>
@@ -717,14 +717,14 @@ export default function BeansScreen() {
                 }}
                 className="p-1"
               >
-                <X size={24} color="#A8B9AE" />
+                <X size={24} color={themeColors['cool-gray-green']} />
               </TouchableOpacity>
             </View>
-            <View className="h-px bg-[#E7E7E7] my-3" />
+            <View className="h-px bg-pale-gray my-3" />
             <ScrollView style={{ maxHeight: 400 }} className="mb-4">
               {gettingSuggestion ? (
                 <View className="items-center justify-center py-8">
-                  <ActivityIndicator size="large" color="#A8B9AE" />
+                  <ActivityIndicator size="large" color={themeColors['cool-gray-green']} />
                   <Text className="mt-3 text-cool-gray-green">Analyzing brewing data...</Text>
                 </View>
               ) : (
@@ -742,7 +742,7 @@ export default function BeansScreen() {
               <Button
                 variant="default"
                 size="default"
-                className="bg-white"
+                className="bg-muted-sage-green"
                 onPress={() => {
                   // Log at the start of onPress
                   console.log("[Modal Button Press] 'Use Suggestion' button pressed.");
@@ -788,9 +788,9 @@ export default function BeansScreen() {
               </Button>
             ) : (
               <Button
-                variant="default"
+                variant="outline"
                 size="default"
-                className="bg-white"
+                className="bg-soft-off-white border-cool-gray-green"
                 onPress={() => {
                   // Log at the start of onPress for the 'Close' button
                   console.log("[Modal Button Press] 'Close' button pressed.");
@@ -810,15 +810,14 @@ export default function BeansScreen() {
 }
 
 const styles = StyleSheet.create({
-  inputLabelThemed: { fontSize: 14, color: "#A8B9AE", fontWeight: "600", marginBottom: 6, marginLeft: 10 },
   inputStyle: {
     borderWidth: 1,
-    borderColor: "#DADADA",
+    borderColor: themeColors['pebble-gray'],
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: Platform.OS === "ios" ? 12 : 8,
-    backgroundColor: "#FAFAF9",
-    color: "#4A4A4A",
+    backgroundColor: themeColors['soft-off-white'],
+    color: themeColors['charcoal'],
     fontSize: 16,
     height: 50,
   }

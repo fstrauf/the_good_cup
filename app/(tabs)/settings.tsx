@@ -1,12 +1,20 @@
 import React, { useState, useCallback } from 'react';
-import { StyleSheet, ScrollView, View, TouchableOpacity, FlatList, RefreshControl, Alert, TextInput, Platform } from 'react-native';
+import { ScrollView, View, TouchableOpacity, FlatList, RefreshControl, Alert, TextInput, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Button } from '../../components/ui/button';
 import { Text } from '../../components/ui/text';
-// import { Icon } from '@rneui/base';
-import { Star, Trash2 } from 'lucide-react-native';
+import { Star, Trash2, Plus } from 'lucide-react-native';
+import { cn } from '../../lib/utils';
+
+// --- Tailwind --- 
+import resolveConfig from 'tailwindcss/resolveConfig';
+import tailwindConfig from '../../tailwind.config.js'; // Adjust path if necessary
+
+const fullConfig = resolveConfig(tailwindConfig);
+const themeColors = (fullConfig.theme?.colors ?? {}) as Record<string, string>; 
+// --- End Tailwind ---
 
 // Storage keys
 const BREW_DEVICES_STORAGE_KEY = '@GoodCup:brewDevices';
@@ -246,22 +254,34 @@ export default function SettingsScreen() {
 
   // Render brew device item
   const renderBrewDeviceItem = ({ item }: { item: BrewDevice }) => (
-    <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 }}>
-      <Text className="text-base">{item.name}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    <View
+      key={item.id}
+      className="flex-row items-center justify-between py-3 border-b border-pale-gray"
+    >
+      <View className="flex-1 mr-2">
+        <Text className="text-base text-charcoal">{item.name}</Text>
+        <Text className="text-sm text-cool-gray-green">{item.type}</Text>
+        {item.notes ? <Text className="text-xs text-cool-gray-green mt-1 italic">{item.notes}</Text> : null}
+      </View>
+      <View className="flex-row items-center">
         {defaultBrewDevice === item.id && (
-          <View className="bg-green-500 px-2 py-0.5 rounded-xl mr-2.5">
-            <Text className="text-white text-xs">Default</Text>
+          <View className="bg-muted-sage-green px-2 py-0.5 rounded-full mr-2">
+            <Text className="text-charcoal text-xs font-medium">Default</Text>
           </View>
         )}
         <TouchableOpacity
           onPress={() => setAsDefaultBrewDevice(item.id)}
-          style={{ marginRight: 10 }}
+          className="p-1 mr-1"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Star size={24} color={defaultBrewDevice === item.id ? '#ffc107' : '#e0e0e0'} />
+          <Star size={22} color={defaultBrewDevice === item.id ? themeColors['muted-sage-green'] : themeColors['pale-gray']} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => handleRemoveBrewDevice(item.id)}>
-          <Trash2 size={24} color="#f44336" />
+        <TouchableOpacity
+          onPress={() => handleRemoveBrewDevice(item.id)}
+          className="p-1"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Trash2 size={22} color={themeColors['cool-gray-green']} />
         </TouchableOpacity>
       </View>
     </View>
@@ -269,151 +289,109 @@ export default function SettingsScreen() {
 
   // Render grinder item
   const renderGrinderItem = ({ item }: { item: Grinder }) => (
-    <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 }}>
-      <Text className="text-base">{item.name}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    <View
+      key={item.id}
+      className="flex-row items-center justify-between py-3 border-b border-pale-gray"
+    >
+      <View className="flex-1 mr-2">
+        <Text className="text-base text-charcoal">{item.name}</Text>
+        <Text className="text-sm text-cool-gray-green">{item.type}</Text>
+        {item.notes ? <Text className="text-xs text-cool-gray-green mt-1 italic">{item.notes}</Text> : null}
+      </View>
+      <View className="flex-row items-center">
         {defaultGrinder === item.id && (
-          <View className="bg-green-500 px-2 py-0.5 rounded-xl mr-2.5">
-            <Text className="text-white text-xs">Default</Text>
+          <View className="bg-muted-sage-green px-2 py-0.5 rounded-full mr-2">
+            <Text className="text-charcoal text-xs font-medium">Default</Text>
           </View>
         )}
         <TouchableOpacity
           onPress={() => setAsDefaultGrinder(item.id)}
-          style={{ marginRight: 10 }}
+          className="p-1 mr-1"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Star size={24} color={defaultGrinder === item.id ? '#ffc107' : '#e0e0e0'} />
+          <Star size={22} color={defaultGrinder === item.id ? themeColors['muted-sage-green'] : themeColors['pale-gray']} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => handleRemoveGrinder(item.id)}>
-          <Trash2 size={24} color="#f44336" />
+        <TouchableOpacity
+          onPress={() => handleRemoveGrinder(item.id)}
+          className="p-1"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Trash2 size={22} color={themeColors['cool-gray-green']} />
         </TouchableOpacity>
       </View>
     </View>
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-transparent" edges={['top', 'left', 'right']}>
-      <View className="flex-1 bg-[#f5f5f5]">
+    <SafeAreaView className="flex-1 bg-soft-off-white" edges={['top', 'left', 'right']}>
+      <View className="flex-1 bg-soft-off-white">
         <ScrollView
-          contentContainerStyle={{ padding: 12 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadData} />}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadData} tintColor={themeColors['cool-gray-green']} />}
         >
-          <Text className="text-2xl font-semibold text-[#333] mb-4 mt-2">Settings</Text>
+          <Text className="text-2xl font-semibold text-charcoal mb-4 mt-4">Settings</Text>
+         
           
-          {/* OpenAI API Key Section */}
-          {/* <View style={{ marginBottom: 24 }}>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: '#333', marginBottom: 12 }}>
-              Brew Suggestions (OpenAI)
-            </Text>
-            <Card containerStyle={{
-              borderRadius: 10,
-              padding: 16,
-              elevation: 1,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.05,
-              shadowRadius: 2,
-              marginBottom: 0
-            }}>
-              <Text style={{ fontSize: 14, color: '#666', marginBottom: 12 }}>
-                Enter your OpenAI API key to get AI-powered suggestions for improving your coffee brews.
-              </Text>
-              
-              <Input
-                placeholder="Enter OpenAI API Key"
-                value={apiKey}
-                onChangeText={setApiKey}
-                secureTextEntry={apiKeyMasked}
-                rightIcon={{
-                  type: 'ionicon',
-                  name: apiKeyMasked ? 'eye-off-outline' : 'eye-outline',
-                  onPress: () => setApiKeyMasked(!apiKeyMasked)
-                }}
-                containerStyle={{ paddingHorizontal: 0 }}
-                inputContainerStyle={{ 
-                  borderWidth: 1, 
-                  borderColor: '#e1e1e1', 
-                  borderRadius: 8, 
-                  paddingHorizontal: 10 
-                }}
-              />
-              
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-                <Text style={{ fontSize: 14, color: '#666' }}>
-                  Status: {savedApiKey ? 'API Key Saved ✓' : 'No API Key Saved'}
-                </Text>
-                {savedApiKey && (
-                  <TouchableOpacity onPress={handleRemoveApiKey}>
-                    <Text style={{ color: '#ff6b6b', fontSize: 14 }}>Remove</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              
-              <Button
-                title="Save API Key"
-                onPress={handleSaveApiKey}
-                disabled={!apiKey}
-                buttonStyle={{ 
-                  borderRadius: 8, 
-                  marginTop: 16,
-                  backgroundColor: '#2089dc' 
-                }}
-              />
-              
-              <Text style={{ fontSize: 12, color: '#888', marginTop: 12, textAlign: 'center' }}>
-                Your API key is stored securely on your device only.
-              </Text>
-            </Card>
-          </View> */}
-          
-          <View className="h-px bg-gray-300 mb-6" /> {/* Divider */}
+          {/* Divider */}
+          {/* <View className="h-px bg-pale-gray mb-6" /> */}
           
           {/* Brew Devices Section */}
           <View className="mb-6">
             <View className="flex-row justify-between items-center mb-3">
-              <Text className="text-lg font-semibold text-[#333]">Brew Devices</Text>
-              {!addingDevice ? (
-                <TouchableOpacity onPress={() => setAddingDevice(true)}>
-                  <Text className="text-[#2089dc] text-sm">Add Device</Text>
-                </TouchableOpacity>
-              ) : null}
+              <Text className="text-lg font-semibold text-charcoal">Brew Devices</Text>
+              {!addingDevice && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onPress={() => setAddingDevice(true)}
+                  className="bg-light-beige border-pebble-gray"
+                >
+                  <Text className="text-charcoal">Add Device</Text>
+                </Button>
+              )}
             </View>
             
             {addingDevice ? (
-              <View className="bg-white rounded-xl p-4 mb-4 shadow-sm border border-gray-200">
+              <View className="bg-white rounded-lg p-4 mb-4 shadow-sm border border-pale-gray">
                 <TextInput
                   placeholder="Device Name (e.g., Hario Switch)"
                   value={newDeviceName}
                   onChangeText={setNewDeviceName}
-                  style={styles.input}
+                  placeholderTextColor={themeColors['cool-gray-green']}
+                  className="border border-pale-gray rounded-md px-3 py-2 mb-2.5 bg-white text-charcoal"
                 />
                 <TextInput
                   placeholder="Device Type (e.g., Pour Over)"
                   value={newDeviceType}
                   onChangeText={setNewDeviceType}
-                  style={styles.input}
+                  placeholderTextColor={themeColors['cool-gray-green']}
+                  className="border border-pale-gray rounded-md px-3 py-2 mb-2.5 bg-white text-charcoal"
                 />
                 <TextInput
                   placeholder="Notes (optional)"
                   value={newDeviceNotes}
                   onChangeText={setNewDeviceNotes}
-                  style={[styles.input, styles.textArea]}
+                  placeholderTextColor={themeColors['cool-gray-green']}
+                  className="border border-pale-gray rounded-md px-3 py-2 mb-3 bg-white text-charcoal h-20 align-top"
                   multiline
+                  textAlignVertical="top"
                 />
                 <View className="flex-row justify-end gap-2">
                   <Button
+                    variant="outline"
                     onPress={() => {
                       setAddingDevice(false);
                       setNewDeviceName('');
                       setNewDeviceType('');
                       setNewDeviceNotes('');
                     }}
-                    className="bg-white border border-[#2089dc] rounded-lg"
+                    className="bg-light-beige border-pebble-gray"
                   >
-                    <Text className="text-[#2089dc]">Cancel</Text>
+                    <Text className="text-charcoal">Cancel</Text>
                   </Button>
                   <Button
                     onPress={addBrewDevice}
-                    className="bg-[#2089dc] rounded-lg"
+                    className="bg-muted-sage-green"
                     disabled={!newDeviceName || !newDeviceType}
                   >
                     <Text className="text-white">Save</Text>
@@ -428,62 +406,73 @@ export default function SettingsScreen() {
               keyExtractor={(item) => item.id}
               scrollEnabled={false}
               ListEmptyComponent={
-                <Text className="text-center text-gray-500 my-4">
+                <Text className="text-center text-cool-gray-green my-4">
                   No brew devices added yet
                 </Text>
               }
             />
           </View>
           
-          <View className="h-px bg-gray-300 mb-6" /> {/* Divider */}
+          {/* Divider */}
+          <View className="h-px bg-pale-gray mb-6" />
           
           {/* Grinders Section */}
-          <View>
+          <View className="pb-6">
             <View className="flex-row justify-between items-center mb-3">
-              <Text className="text-lg font-semibold text-[#333]">Grinders</Text>
-              {!addingGrinder ? (
-                <TouchableOpacity onPress={() => setAddingGrinder(true)}>
-                  <Text className="text-[#2089dc] text-sm">Add Grinder</Text>
-                </TouchableOpacity>
-              ) : null}
+              <Text className="text-lg font-semibold text-charcoal">Grinders</Text>
+              {!addingGrinder && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onPress={() => setAddingGrinder(true)}
+                  className="bg-light-beige border-pebble-gray"
+                >
+                  <Text className="text-charcoal">Add Grinder</Text>
+                </Button>
+              )}
             </View>
             
             {addingGrinder ? (
-              <View className="bg-white rounded-xl p-4 mb-4 shadow-sm border border-gray-200">
+              <View className="bg-white rounded-lg p-4 mb-4 shadow-sm border border-pale-gray">
                 <TextInput
                   placeholder="Grinder Name (e.g., 1Zpresso J-Max)"
                   value={newGrinderName}
                   onChangeText={setNewGrinderName}
-                  style={styles.input}
+                  placeholderTextColor={themeColors['cool-gray-green']}
+                  className="border border-pale-gray rounded-md px-3 py-2 mb-2.5 bg-white text-charcoal"
                 />
                 <TextInput
                   placeholder="Grinder Type (e.g., Hand Grinder)"
                   value={newGrinderType}
                   onChangeText={setNewGrinderType}
-                  style={styles.input}
+                  placeholderTextColor={themeColors['cool-gray-green']}
+                  className="border border-pale-gray rounded-md px-3 py-2 mb-2.5 bg-white text-charcoal"
                 />
                 <TextInput
                   placeholder="Notes (optional)"
                   value={newGrinderNotes}
                   onChangeText={setNewGrinderNotes}
-                  style={[styles.input, styles.textArea]}
+                  placeholderTextColor={themeColors['cool-gray-green']}
+                  className="border border-pale-gray rounded-md px-3 py-2 mb-3 bg-white text-charcoal h-20 align-top"
                   multiline
+                  textAlignVertical="top"
                 />
                 <View className="flex-row justify-end gap-2">
                   <Button
+                    variant="outline"
                     onPress={() => {
                       setAddingGrinder(false);
                       setNewGrinderName('');
                       setNewGrinderType('');
                       setNewGrinderNotes('');
                     }}
-                    className="bg-white border border-[#2089dc] rounded-lg"
+                    className="bg-light-beige border-pebble-gray"
                   >
-                    <Text className="text-[#2089dc]">Cancel</Text>
+                    <Text className="text-charcoal">Cancel</Text>
                   </Button>
                   <Button
                     onPress={addGrinder}
-                    className="bg-[#2089dc] rounded-lg"
+                    className="bg-muted-sage-green"
                     disabled={!newGrinderName || !newGrinderType}
                   >
                     <Text className="text-white">Save</Text>
@@ -498,7 +487,7 @@ export default function SettingsScreen() {
               keyExtractor={(item) => item.id}
               scrollEnabled={false}
               ListEmptyComponent={
-                <Text className="text-center text-gray-500 my-4">
+                <Text className="text-center text-cool-gray-green my-4">
                   No grinders added yet
                 </Text>
               }
@@ -509,30 +498,3 @@ export default function SettingsScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
-  },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#e1e1e1',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 8,
-    marginBottom: 10,
-    backgroundColor: '#fff',
-  },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
-    paddingTop: Platform.OS === 'ios' ? 12 : 8,
-  },
-});

@@ -8,6 +8,14 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        'soft-off-white': '#FAFAF9',
+        'light-beige': '#F2EFEA',
+        'pale-gray': '#E7E7E7',
+        'muted-sage-green': '#D4E2D4',
+        'cool-gray-green': '#8F9E93',
+        'mist-blue': '#C9D8D3',
+        'charcoal': '#4A4A4A',
+        'pebble-gray': '#DADADA',
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',

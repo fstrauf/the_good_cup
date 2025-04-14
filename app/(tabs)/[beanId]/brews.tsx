@@ -10,6 +10,7 @@ import BeanNameHeader from '../../../components/BeanNameHeader';
 // --- Tailwind ---
 import resolveConfig from 'tailwindcss/resolveConfig';
 import tailwindConfig from '../../../tailwind.config.js'; // Adjust path
+import { Text as CustomText } from '../../../components/ui/text'; // Import custom Text component
 
 const fullConfig = resolveConfig(tailwindConfig);
 const themeColors = (fullConfig.theme?.colors ?? {}) as Record<string, string>; 
@@ -104,210 +105,69 @@ export default function BrewsScreen() {
 
   const renderBrewItem = ({ item }: { item: Brew }) => (
     <TouchableOpacity onPress={() => handleBrewPress(item)} activeOpacity={0.7}>
-       <View style={styles.brewCardContainer}> {/* Changed Card to View */}
-         <View style={styles.brewCardHeader}>
-           <Text style={styles.brewCardDate}>
+       <View className="rounded-lg mb-3 p-4 bg-soft-off-white border border-pale-gray shadow-sm">
+         <View className="flex-row justify-between mb-2">
+           <CustomText className="text-sm font-medium text-cool-gray-green">
              {formatDate(item.timestamp)}
-           </Text>
-           <Text style={styles.brewCardRating}>
+           </CustomText>
+           <CustomText className="text-sm font-semibold text-charcoal">
              {item.rating}/10
-           </Text>
+           </CustomText>
          </View>
          
-         <View style={styles.brewCardDivider} /> {/* Changed Divider to View */}
+         <View className="h-px bg-pale-gray mb-3" />
          
-         <Text style={styles.brewCardDetail}>
+         <CustomText className="text-sm text-charcoal mb-1">
            Steep time: {formatTime(item.steepTime)}
-         </Text>
+         </CustomText>
          
-         <Text style={styles.brewCardDetail}>
+         <CustomText className="text-sm text-charcoal mb-1">
            Grind: {item.grindSize || 'Not specified'}
-         </Text>
+         </CustomText>
          
-         <Text style={styles.brewCardDetail}>
+         <CustomText className="text-sm text-charcoal mb-1">
            Temp: {item.waterTemp || 'Not specified'}
-         </Text>
+         </CustomText>
          
          {item.useBloom && (
-           <Text style={styles.brewCardDetail}>
+           <CustomText className="text-sm text-charcoal mb-1">
              Bloom: {item.bloomTime || 'Yes'}
-           </Text>
+           </CustomText>
          )}
          
          {item.notes && (
            <>
-             <View style={styles.brewCardNotesDivider} /> {/* Changed Divider to View */}
-             <Text style={styles.brewCardNotesText}>
+             <View className="h-px bg-pale-gray my-2" />
+             <CustomText className="text-sm text-charcoal italic">
                {item.notes}
-             </Text>
+             </CustomText>
            </>
          )}
-       </View> {/* Changed Card to View */}
+       </View>
     </TouchableOpacity>
   );
 
   return (
-    <SafeAreaView style={styles.safeArea} className="dark:bg-black" edges={['top', 'left', 'right']}>
+    <SafeAreaView className="flex-1 bg-soft-off-white" edges={['top', 'left', 'right']}>
       <BeanNameHeader beanName={beanNameFilter} prefix="Brews for:" />
-      <View style={styles.mainContainer} className="bg-soft-off-white dark:bg-black">
-        {/* Removed Filter Dropdown Card */}
-
-        {/* Use FlatList directly with filteredBrews */}
+      <View className="flex-1 bg-soft-off-white">
         <FlatList
           data={filteredBrews}
           renderItem={renderBrewItem}
           keyExtractor={(item) => item.id}
           ListEmptyComponent={
-            <View style={styles.emptyListComponent}>
-              <Text style={styles.emptyListText}>
+            <View className="items-center justify-center mt-16">
+              <CustomText className="text-base text-cool-gray-green text-center">
                 {refreshing ? 'Loading...' : `No brews found for ${beanNameFilter || 'this bean'}`}
-              </Text>
+              </CustomText>
             </View>
           }
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={loadBrews} />
           }
-          contentContainerStyle={styles.flatListContentContainer}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 40 }}
         />
       </View>
     </SafeAreaView>
   );
-}
-
-// StyleSheet for better organization
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: themeColors['soft-off-white']
-  },
-  mainContainer: {
-    flex: 1
-  },
-  brewCardContainer: {
-    borderRadius: 10, 
-    marginBottom: 12,
-    padding: 16,
-    elevation: 1,
-    shadowColor: themeColors['charcoal'],
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2, 
-    backgroundColor: themeColors['soft-off-white']
-  },
-  brewCardHeader: {
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    marginBottom: 8 
-  },
-  brewCardDate: {
-    fontSize: 14, 
-    fontWeight: '500', 
-    color: themeColors['cool-gray-green']
-  },
-  brewCardRating: {
-    fontSize: 14, 
-    fontWeight: '600', 
-    color: themeColors['charcoal']
-  },
-  brewCardDivider: {
-    height: 1, // Added height
-    marginBottom: 12, 
-    backgroundColor: themeColors['pale-gray']
-  },
-  brewCardDetail: {
-    fontSize: 14, 
-    color: themeColors['charcoal'],
-    marginBottom: 4 
-  },
-  brewCardNotesDivider: {
-    height: 1, // Added height
-    marginVertical: 8, 
-    backgroundColor: themeColors['pale-gray']
-  },
-  brewCardNotesText: {
-    fontSize: 14, 
-    color: themeColors['charcoal'],
-    fontStyle: 'italic' 
-  },
-  emptyListComponent: {
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    marginTop: 64 
-  },
-  emptyListText: {
-    fontSize: 16, 
-    color: themeColors['cool-gray-green'],
-    textAlign: 'center' 
-  },
-  flatListContentContainer: {
-    paddingHorizontal: 12, 
-    paddingTop: 12,
-    paddingBottom: 40 
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)'
-  },
-  modalContent: {
-    width: '90%',
-    backgroundColor: themeColors['soft-off-white'],
-    borderRadius: 16,
-    padding: 20,
-    maxHeight: '80%',
-    elevation: 5,
-    shadowColor: themeColors['charcoal'],
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  modalTitle: {
-    fontSize: 20, 
-    fontWeight: '600', 
-    marginBottom: 8,
-    color: themeColors['charcoal']
-  },
-  modalDate: {
-    fontSize: 14, 
-    color: themeColors['cool-gray-green'],
-    marginBottom: 4 
-  },
-  modalDivider: {
-    marginVertical: 12, 
-    backgroundColor: themeColors['pale-gray']
-  },
-  modalSuggestionContainer: {
-    // flex: 1 // Removed flex: 1 to allow content to determine height
-  },
-  modalSuggestionTitle: {
-    fontSize: 16, 
-    fontWeight: '600', 
-    marginBottom: 8,
-    color: themeColors['charcoal']
-  },
-  modalLoadingContainer: {
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    paddingVertical: 20 
-  },
-  modalLoadingText: {
-    marginTop: 12, 
-    color: themeColors['cool-gray-green']
-  },
-  modalSuggestionScroll: {
-    maxHeight: 300 
-  },
-  modalSuggestionText: {
-    fontSize: 14, 
-    lineHeight: 20, 
-    color: themeColors['charcoal']
-  },
-  modalCloseButton: {
-    borderRadius: 8,
-    backgroundColor: themeColors['pale-gray']
-  },
-  modalCloseButtonTitle: {
-     color: themeColors['charcoal']
-  }
-}); 
+} 
