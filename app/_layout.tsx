@@ -10,6 +10,7 @@ import 'react-native-reanimated';
 // import { ThemeProvider as RNEThemeProvider } from '@rneui/themed';
 import { LogBox, View } from 'react-native'; // Import LogBox and View
 import { PortalHost } from '@rn-primitives/portal'; // Import PortalHost
+import { AuthProvider } from '../lib/auth';
 
 // import { useColorScheme } from '../../goodCup/hooks/useColorScheme'; // Removed
 
@@ -44,15 +45,15 @@ export default function RootLayout() {
   }
 
   return (
-    <>
-        <View className="flex-1 bg-soft-off-white"> {/* Keep Tailwind classes */}
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="+not-found" />
-          </Stack>
-          <StatusBar style="auto" />
-        </View>
-        <PortalHost />
-    </>
+    <AuthProvider>
+      <View className="flex-1 bg-soft-off-white"> {/* Keep Tailwind classes */}
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="+not-found" />
+        </Stack>
+        <StatusBar style="auto" />
+      </View>
+      <PortalHost />
+    </AuthProvider>
   );
 }

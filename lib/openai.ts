@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import OpenAI from 'openai';
+import { getBrewSuggestionsFromAPI, generateGenericBrewSuggestionFromAPI, analyzeImageFromAPI } from './apiService';
 
 // Interfaces
 export interface Brew {
@@ -44,6 +45,7 @@ const BREW_DEVICES_STORAGE_KEY = '@GoodCup:brewDevices';
 const GRINDERS_STORAGE_KEY = '@GoodCup:grinders';
 
 // Helper function to get API key (checks env vars first, then storage)
+// This will be mostly used during the transition to the new auth system
 const getApiKeyInternal = async (): Promise<string | null> => {
   try {
     // First check process.env for Expo public env var
@@ -93,6 +95,23 @@ const formatTime = (totalSeconds: number): string => {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 };
 
+// Helper function to calculate age in days
+const calculateAgeDays = (roastedTimestamp?: number, brewTimestamp?: number): number | null => {
+  if (!roastedTimestamp || !brewTimestamp) return null;
+  const roastedDate = new Date(roastedTimestamp);
+  const brewDate = new Date(brewTimestamp);
+  
+  // Set both times to the start of the day for accurate day difference
+  roastedDate.setHours(0, 0, 0, 0);
+  brewDate.setHours(0, 0, 0, 0);
+
+  const differenceInTime = brewDate.getTime() - roastedDate.getTime();
+  const differenceInDays = Math.floor(differenceInTime / (1000 * 3600 * 24));
+  
+  // Return null if roasted date is after brew date (should not happen)
+  return differenceInDays >= 0 ? differenceInDays : null;
+};
+
 // Add this helper function near the top
 const extractJson = (content: string | null): any | null => {
   if (!content) return null;
@@ -122,6 +141,7 @@ const extractJson = (content: string | null): any | null => {
 };
 
 // Simplified API call function with stateless client initialization
+// This will be used during the transition to the new auth system
 export async function makeOpenAICall<T>(callFunction: (client: OpenAI) => Promise<T>): Promise<T> {
   try {
     // 1. Get the API key
@@ -172,9 +192,27 @@ export const getBrewSuggestions = async (
   currentBrew: Brew,
   previousBrews: Brew[],
   selectedBeanName?: string,
-  currentGrinderName?: string
+  currentGrinderName?: string,
+  authToken?: string | null  // Optional auth token parameter for transitioning to the new system
 ): Promise<BrewSuggestionResponse> => {
   try {
+    console.log('Starting getBrewSuggestions...');
+    
+    // Try to use the authenticated API service first if an auth token is provided
+    if (authToken) {
+      console.log('Authenticated token found, using secure API backend...');
+      return await getBrewSuggestionsFromAPI(
+        authToken, 
+        currentBrew, 
+        previousBrews, 
+        selectedBeanName, 
+        currentGrinderName
+      );
+    }
+    
+    // Otherwise, fall back to the original implementation
+    console.log('No auth token provided, using legacy direct OpenAI API call...');
+    
     // Get brew devices and grinders
     const storedDevices = await AsyncStorage.getItem(BREW_DEVICES_STORAGE_KEY);
     const storedGrinders = await AsyncStorage.getItem(GRINDERS_STORAGE_KEY);
@@ -218,6 +256,9 @@ export const getBrewSuggestions = async (
       .sort((a, b) => b.rating - a.rating) // Sort by rating, highest first
       .slice(0, 5); // Take top 5 rated
 
+    // Calculate age for the current brew
+    const currentBrewAge = calculateAgeDays(currentBrew.roastedDate, currentBrew.timestamp);
+
     // Construct prompt
     let prompt = `As a coffee expert, I'm analyzing a brew of ${currentBrew.beanName}. Here are the details:
 
@@ -230,6 +271,8 @@ ${brewDeviceName ? `- Brewing Device: ${brewDeviceName}` : ''}
 ${grinderName ? `- Grinder: ${grinderName}` : ''}
 ${currentBrew.notes ? `- Notes: ${currentBrew.notes}` : ''}
 ${currentBrew.rating ? `- Rating: ${currentBrew.rating}/10` : ''}
+${currentBrew.roastedDate ? `- Roasted Date: ${new Date(currentBrew.roastedDate).toLocaleDateString()}` : ''}
+${currentBrewAge !== null ? `- Age When Brewed: ${currentBrewAge} days` : ''}
 
 ${possibleDevices.length > 0 ? `Possibly using these brew devices: ${possibleDevices.join(', ')}` : ''}
 ${possibleGrinders.length > 0 ? `Possibly using these grinders: ${possibleGrinders.join(', ')}` : ''}
@@ -240,12 +283,15 @@ ${possibleGrinders.length > 0 ? `Possibly using these grinders: ${possibleGrinde
       prompt += `\nRelevant previous brews of the same bean (sorted by rating):\n`;
       
       relevantBrews.forEach((brew, index) => {
+        // Calculate age for previous brews as well
+        const prevBrewAge = calculateAgeDays(brew.roastedDate, brew.timestamp);
         prompt += `\nBrew #${index + 1} (Rating: ${brew.rating}/10):
 - Steep Time: ${formatTime(brew.steepTime)}
 - Grind Size: ${brew.grindSize}
 - Water Temperature: ${brew.waterTemp}
 ${brew.useBloom ? `- Bloom: Yes (${brew.bloomTime || 'unspecified time'})` : '- Bloom: No'}
 ${brew.notes ? `- Notes: ${brew.notes}` : ''}
+${prevBrewAge !== null ? `- Age When Brewed: ${prevBrewAge} days` : ''}
 `;
       });
     }
@@ -278,7 +324,7 @@ Return the response ONLY as a valid JSON object with the exact structure below. 
     // Use the simplified API call function
     const response = await makeOpenAICall(async (client) => {
       return await client.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-4.1-2025-04-14',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: 500
@@ -320,14 +366,26 @@ Return the response ONLY as a valid JSON object with the exact structure below. 
 };
 
 // Analyze image with vision model
-export const analyzeImage = async (base64Image: string): Promise<any> => {
+export const analyzeImage = async (
+  base64Image: string,
+  authToken?: string | null  // Optional auth token parameter for transitioning to the new system
+): Promise<any> => {
   try {
+    console.log('Starting image analysis...');
+    
+    // Try to use the authenticated API service first if an auth token is provided
+    if (authToken) {
+      console.log('Authenticated token found, using secure API backend for image analysis...');
+      return await analyzeImageFromAPI(authToken, base64Image);
+    }
+    
+    console.log('No auth token provided, using legacy direct OpenAI API call for image analysis...');
     console.log('Attempting OpenAI API call for image analysis...');
 
     // Use the simplified API call function
     const response = await makeOpenAICall(async (client) => {
       return await client.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-4.1-2025-04-14',
         messages: [
           {
             role: 'user',
@@ -385,15 +443,27 @@ export const generateGenericBrewSuggestion = async (
     roastLevel: string;
     flavorNotes: string[];
     description: string;
-  }
+    roastedDate?: number;
+  },
+  authToken?: string | null  // Optional auth token parameter for transitioning to the new system
 ): Promise<BrewSuggestionResponse> => {
   try {
+    console.log('Starting generic brew suggestion generation...');
+    
+    // Try to use the authenticated API service first if an auth token is provided
+    if (authToken) {
+      console.log('Authenticated token found, using secure API backend for generic suggestion...');
+      return await generateGenericBrewSuggestionFromAPI(authToken, bean);
+    }
+    
+    console.log('No auth token provided, using legacy direct OpenAI API call for generic suggestion...');
     console.log('Generating generic brew suggestion based on bean characteristics...');
     
     const prompt = `I have a coffee bean called "${bean.name}" with no brewing history yet. 
 Roast Level: ${bean.roastLevel}
 Flavor Notes: ${bean.flavorNotes.join(', ') || 'Not specified'}
 Description: ${bean.description || 'Not available'}
+Roasted Date: ${bean.roastedDate ? new Date(bean.roastedDate).toLocaleDateString() : 'Not available'}
 
 Please provide a comprehensive brewing guide for this bean, including:
 1. The optimal brewing parameters specifically for this bean type and roast level
@@ -424,7 +494,7 @@ Return the response ONLY as a valid JSON object with the exact structure below. 
     // Use the simplified API call function
     const response = await makeOpenAICall(async (client) => {
       return await client.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-4.1-2025-04-14',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: 500,

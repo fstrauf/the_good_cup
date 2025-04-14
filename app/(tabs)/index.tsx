@@ -18,6 +18,7 @@ import { Button } from "../../components/ui/button";
 import { Text } from "../../components/ui/text";
 import { Image as LucideImage, X, Coffee, XCircle, Mountain } from "lucide-react-native";
 import dayjs from 'dayjs';
+import { useAuth } from "../../lib/auth";
 
 // --- Tailwind --- 
 import resolveConfig from 'tailwindcss/resolveConfig';
@@ -65,6 +66,59 @@ interface NavigationParams {
   suggestionResponse: BrewSuggestionResponse;
 }
 
+// --- Helper Functions --- (Outside component)
+const formatTime = (totalSeconds: number): string => {
+  if (!totalSeconds || isNaN(totalSeconds)) return "0:00";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+};
+
+// New sub-component for displaying suggested parameters
+const SuggestedParameters: React.FC<{ response: BrewSuggestionResponse }> = ({ response }) => {
+  if (!response) return null;
+
+  // Helper to display N/A if value is null/empty
+  const displayValue = (value: string | number | null | undefined): string => {
+    if (value === null || value === undefined || value === '') return 'N/A';
+    return String(value);
+  };
+
+  return (
+    <View className="mt-4 pt-3 border-t border-pale-gray">
+      <Text className="text-base font-semibold text-charcoal mb-2">Parameters:</Text>
+      <View className="flex-row mb-1.5">
+        <Text className="w-28 text-sm text-cool-gray-green">Grind:</Text>
+        <Text className="flex-1 text-sm text-charcoal font-medium">
+          {displayValue(response.suggestedGrindSize)}
+        </Text>
+      </View>
+      <View className="flex-row mb-1.5">
+        <Text className="w-28 text-sm text-cool-gray-green">Water Temp:</Text>
+        <Text className="flex-1 text-sm text-charcoal font-medium">
+          {displayValue(response.suggestedWaterTemp)}
+        </Text>
+      </View>
+      <View className="flex-row mb-1.5">
+        <Text className="w-28 text-sm text-cool-gray-green">Steep Time:</Text>
+        <Text className="flex-1 text-sm text-charcoal font-medium">
+          {response.suggestedSteepTimeSeconds
+            ? formatTime(response.suggestedSteepTimeSeconds)
+            : 'N/A'}
+        </Text>
+      </View>
+      <View className="flex-row mb-1.5">
+        <Text className="w-28 text-sm text-cool-gray-green">Bloom:</Text>
+        <Text className="flex-1 text-sm text-charcoal font-medium">
+          {response.suggestedUseBloom ? 'Yes' : 'No'}
+          {response.suggestedUseBloom && response.suggestedBloomTimeSeconds && 
+            ` (${formatTime(response.suggestedBloomTimeSeconds)})`}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 export default function BeansScreen() {
   const isFirstRender = useRef(true);
   const router = useRouter();
@@ -88,6 +142,7 @@ export default function BeansScreen() {
   const [gettingSuggestion, setGettingSuggestion] = useState(false);
   const [navigationData, setNavigationData] = useState<NavigationParams | null>(null);
   const [modalSuggestionText, setModalSuggestionText] = useState<string>("");
+  const { token } = useAuth(); // Get auth token for API calls
 
   const loadBeans = useCallback(async () => {
     try {
@@ -180,7 +235,8 @@ export default function BeansScreen() {
               bestBrew,
               sortedBrews,
               bean.name,
-              currentGrinderName
+              currentGrinderName,
+              token
             );
             console.log(
               "[getOptimalBrewSuggestions] Successfully generated suggestion from brew history:",
@@ -212,9 +268,13 @@ export default function BeansScreen() {
           const beanWithLabel = {
             ...bean,
             roastLevel: roastLevelLabel,
+            roastedDate: bean.roastedDate || undefined,
           };
           console.log(`[getOptimalBrewSuggestions] Calling generateGenericBrewSuggestion API...`);
-          suggestionResponse = await generateGenericBrewSuggestion(beanWithLabel);
+          suggestionResponse = await generateGenericBrewSuggestion(
+            beanWithLabel,
+            token
+          );
           console.log(
             "[getOptimalBrewSuggestions] Successfully generated generic suggestion:",
             suggestionResponse?.suggestionText?.substring(0, 50) + "..."
@@ -426,62 +486,62 @@ export default function BeansScreen() {
         </ScrollView>
       </View>
       <Modal
-        transparent={true}
         animationType="slide"
+        transparent={true}
         visible={suggestionModalVisible}
         onRequestClose={() => setSuggestionModalVisible(false)}
       >
         <View className="flex-1 justify-center items-center bg-charcoal/60 p-5">
-          <View className="w-full bg-soft-off-white rounded-2xl p-5 max-h-[80%] shadow-lg border border-pale-gray">
-            <View className="flex-row justify-between items-center">
+          <View className="w-full bg-soft-off-white rounded-2xl p-5 max-h-[85%] shadow-lg border border-pale-gray">
+            <View className="flex-row justify-between items-center mb-1">
               <Text className="text-xl font-semibold text-charcoal flex-1 mr-2" numberOfLines={1}>
                 {selectedBeanForSuggestion?.name || "Bean"} Suggestion
               </Text>
               <TouchableOpacity
                 onPress={() => {
-                  if (navigationData && navigationData.suggestionResponse) {
-                    console.log("[Modal Close Button] Navigating with data:", navigationData);
+                  if (navigationData?.suggestionResponse) {
+                    const { suggestionResponse, bean } = navigationData;
                     const paramsToPass = {
-                      beanId: navigationData.bean.id,
-                      beanName: navigationData.bean.name,
-                      suggestion: navigationData.suggestionResponse.suggestionText || "",
-                      grindSize: navigationData.suggestionResponse.suggestedGrindSize || "",
-                      waterTemp: navigationData.suggestionResponse.suggestedWaterTemp || "",
-                      steepTime: navigationData.suggestionResponse.suggestedSteepTimeSeconds?.toString() || "",
-                      useBloom: navigationData.suggestionResponse.suggestedUseBloom ? "true" : "false",
-                      bloomTime: navigationData.suggestionResponse.suggestedBloomTimeSeconds?.toString() || "",
+                      beanId: bean.id,
+                      beanName: bean.name,
+                      suggestion: suggestionResponse.suggestionText || "",
+                      grindSize: suggestionResponse.suggestedGrindSize || "",
+                      waterTemp: suggestionResponse.suggestedWaterTemp || "",
+                      steepTime: suggestionResponse.suggestedSteepTimeSeconds?.toString() || "",
+                      useBloom: suggestionResponse.suggestedUseBloom ? "true" : "false",
+                      bloomTime: suggestionResponse.suggestedBloomTimeSeconds?.toString() || "",
                       fromSuggestion: "true",
+                      roastedDate: bean.roastedDate ? bean.roastedDate.toString() : undefined
                     };
-                    console.log("[Modal Close Button] Params being passed:", paramsToPass);
-                    router.push({
-                      pathname: "/[beanId]/brew" as any,
-                      params: paramsToPass,
-                    });
+                    router.push({ pathname: "/[beanId]/brew" as any, params: paramsToPass });
                     setNavigationData(null);
-                    setSuggestionModalVisible(false);
-                    setModalSuggestionText("");
-                  } else {
-                    console.error("[Modal Close Button] Navigation data or suggestionResponse is missing!");
-                    setSuggestionModalVisible(false);
                     setModalSuggestionText("");
                   }
+                  setSuggestionModalVisible(false);
                 }}
                 className="p-1"
               >
                 <X size={24} color={themeColors['cool-gray-green']} />
               </TouchableOpacity>
             </View>
+            
             <View className="h-px bg-pale-gray my-3" />
-            <ScrollView style={{ maxHeight: 400 }} className="mb-4">
+
+            <ScrollView style={{ maxHeight: 450 }} className="mb-4">
               {gettingSuggestion ? (
                 <View className="items-center justify-center py-8">
                   <ActivityIndicator size="large" color={themeColors['cool-gray-green']} />
                   <Text className="mt-3 text-cool-gray-green">Analyzing brewing data...</Text>
                 </View>
               ) : (
-                <Text className="text-base leading-relaxed text-charcoal">
-                  {modalSuggestionText || "No suggestions available."}
-                </Text>
+                <View>
+                  <Text className="text-base leading-relaxed text-charcoal">
+                    {modalSuggestionText || "No suggestions available."}
+                  </Text>
+                  {!gettingSuggestion && navigationData?.suggestionResponse && (
+                    <SuggestedParameters response={navigationData.suggestionResponse} />
+                  )}
+                </View>
               )}
             </ScrollView>
 
@@ -491,41 +551,28 @@ export default function BeansScreen() {
                 size="default"
                 className="bg-muted-sage-green"
                 onPress={() => {
-                  console.log("[Modal Button Press] 'Use Suggestion' button pressed.");
-                  console.log("[Modal Button Press] Value of navigationData on press:", navigationData);
-
-                  if (navigationData && navigationData.suggestionResponse) {
-                    console.log("[Modal Close Button] Navigating with data:", navigationData);
-                    const paramsToPass = {
-                      beanId: navigationData.bean.id,
-                      beanName: navigationData.bean.name,
-                      suggestion: navigationData.suggestionResponse.suggestionText || "",
-                      grindSize: navigationData.suggestionResponse.suggestedGrindSize || "",
-                      waterTemp: navigationData.suggestionResponse.suggestedWaterTemp || "",
-                      steepTime: navigationData.suggestionResponse.suggestedSteepTimeSeconds?.toString() || "",
-                      useBloom: navigationData.suggestionResponse.suggestedUseBloom ? "true" : "false",
-                      bloomTime: navigationData.suggestionResponse.suggestedBloomTimeSeconds?.toString() || "",
+                  const { suggestionResponse, bean } = navigationData;
+                  const paramsToPass = {
+                      beanId: bean.id,
+                      beanName: bean.name,
+                      suggestion: suggestionResponse.suggestionText || "",
+                      grindSize: suggestionResponse.suggestedGrindSize || "",
+                      waterTemp: suggestionResponse.suggestedWaterTemp || "",
+                      steepTime: suggestionResponse.suggestedSteepTimeSeconds?.toString() || "",
+                      useBloom: suggestionResponse.suggestedUseBloom ? "true" : "false",
+                      bloomTime: suggestionResponse.suggestedBloomTimeSeconds?.toString() || "",
                       fromSuggestion: "true",
-                    };
-                    console.log("[Modal Close Button] Params being passed:", paramsToPass);
-                    try {
-                      router.push({
-                        pathname: "/[beanId]/brew" as any,
-                        params: paramsToPass,
-                      });
-                      console.log("[Modal Button Press] router.push executed.");
-                    } catch (e) {
-                      console.error("[Modal Button Press] Error during router.push:", e);
-                      Alert.alert("Navigation Error", "Could not navigate to the brew screen.");
-                    }
-                    setNavigationData(null);
-                    setSuggestionModalVisible(false);
-                    setModalSuggestionText("");
-                  } else {
-                    console.error("[Modal Button Press] Navigation data or suggestionResponse is missing on press!");
-                    setSuggestionModalVisible(false);
-                    setModalSuggestionText("");
+                      roastedDate: bean.roastedDate ? bean.roastedDate.toString() : undefined
+                  };
+                  try {
+                    router.push({ pathname: "/[beanId]/brew" as any, params: paramsToPass });
+                  } catch (e) {
+                    console.error("[Modal Button Press] Error during router.push:", e);
+                    Alert.alert("Navigation Error", "Could not navigate to the brew screen.");
                   }
+                  setNavigationData(null);
+                  setSuggestionModalVisible(false);
+                  setModalSuggestionText("");
                 }}
               >
                 <Text className="text-charcoal font-bold">Use Suggestion & Brew</Text>
@@ -536,7 +583,6 @@ export default function BeansScreen() {
                 size="default"
                 className="bg-soft-off-white border-cool-gray-green"
                 onPress={() => {
-                  console.log("[Modal Button Press] 'Close' button pressed.");
                   setSuggestionModalVisible(false);
                   setNavigationData(null);
                   setModalSuggestionText("");

@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import DateTimePicker from 'react-native-ui-datepicker';
 import { useDefaultClassNames } from 'react-native-ui-datepicker';
 import dayjs from 'dayjs';
+import { useAuth } from "../lib/auth";
 
 // --- Tailwind --- 
 import resolveConfig from 'tailwindcss/resolveConfig';
@@ -56,6 +57,7 @@ export default function AddEditBeanScreen() {
   const params = useLocalSearchParams<{ beanId?: string }>();
   const beanId = params.beanId; // Get beanId from route params
   const isEditing = !!beanId;
+  const { token } = useAuth(); // Get auth token for API calls
 
   const [beans, setBeans] = useState<Bean[]>([]); // Need original beans list to update
   const [loading, setLoading] = useState(false);
@@ -258,42 +260,29 @@ export default function AddEditBeanScreen() {
     }
   };
   const analyzePhoto = async (base64Image: string) => {
-    setAnalyzing(true);
     try {
-      console.log("Starting image analysis...");
-      const extractedData = await analyzeImage(base64Image);
-      const beanName = extractedData["Bean name"];
-      const roastLevel = extractedData["Roast level"];
-      const flavorNotes = extractedData["Flavor notes"];
-      const description = extractedData["Description"];
-
+      setAnalyzing(true);
+      console.log("Analyzing photo...");
+      // Pass the auth token to the analyzeImage function
+      const extractedData = await analyzeImage(base64Image, token);
+      console.log("Extracted data:", extractedData);
+      const { beanName, roastLevel, flavorNotes, description } = extractedData;
+      
       setNewBean((prev) => ({
         ...prev,
-        name: beanName || prev.name,
-        roastLevel: roastLevel || prev.roastLevel || "unknown",
-        flavorNotes: flavorNotes || prev.flavorNotes,
-        description: description || prev.description,
+        name: beanName && beanName !== "Unknown" ? beanName : prev.name,
+        roastLevel: roastLevel && roastLevel !== "Unknown" ? roastLevel : prev.roastLevel,
+        flavorNotes: flavorNotes && flavorNotes.length > 0 ? flavorNotes : prev.flavorNotes,
+        description: description && description !== "Unknown" ? description : prev.description,
       }));
-      Alert.alert(
-        "Analysis Complete",
-        "Information extracted from the package photo. Please review and edit if needed."
-      );
-    } catch (error: any) {
-      console.error("Error analyzing photo:", error.message || error);
-      if (error.message?.includes("API key")) {
-        Alert.alert("API Key Error", "OpenAI API key not found or invalid. Please check your settings.");
-      } else if (error.message?.includes("internet connection")) {
-        Alert.alert("Network Error", "No internet connection detected. Please check your network and try again.");
-      } else if (error.message?.includes("timeout")) {
-        Alert.alert("Timeout Error", "The request to OpenAI timed out. Please try again later.");
-      } else {
-        Alert.alert(
-          "Analysis Error",
-          "Failed to analyze the photo. Please try again. Error: " + (error.message || "Unknown error")
-        );
-      }
+      
+      Alert.alert("Analysis Complete", "Bean information extracted from the photo!");
+    } catch (error) {
+      console.error("Error analyzing image:", error);
+      Alert.alert("Analysis Error", "Could not analyze the image. Please try again or enter details manually.");
+    } finally {
+      setAnalyzing(false);
     }
-    setAnalyzing(false);
   };
 
 
