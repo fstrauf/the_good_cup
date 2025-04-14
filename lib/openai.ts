@@ -92,6 +92,34 @@ const formatTime = (totalSeconds: number): string => {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 };
 
+// Add this helper function near the top
+const extractJson = (content: string | null): any | null => {
+  if (!content) return null;
+
+  // 1. Check for markdown code fence
+  const codeFenceMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+  if (codeFenceMatch && codeFenceMatch[1]) {
+    content = codeFenceMatch[1].trim();
+  } else {
+    // 2. If no code fence, look for the first '{' and last '}'
+    const firstBrace = content.indexOf('{');
+    const lastBrace = content.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      content = content.substring(firstBrace, lastBrace + 1).trim();
+    } else {
+      // 3. If still no structure, assume it might be the raw JSON (or invalid)
+      content = content.trim();
+    }
+  }
+
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    console.error("Failed to parse extracted JSON content:", content, e);
+    return null; // Return null if parsing fails after extraction attempts
+  }
+};
+
 // Simplified API call function with stateless client initialization
 export async function makeOpenAICall<T>(callFunction: (client: OpenAI) => Promise<T>): Promise<T> {
   try {
@@ -143,7 +171,6 @@ export const getBrewSuggestions = async (
   currentBrew: Brew,
   previousBrews: Brew[],
   selectedBeanName?: string,
-  currentGrinderId?: string,
   currentGrinderName?: string
 ): Promise<BrewSuggestionResponse> => {
   try {
@@ -234,16 +261,16 @@ Please provide specific, actionable advice that would help achieve a better extr
 
 If previous brews with the same grinder (${currentGrinderName || 'used previously'}) exist and used specific click settings (e.g., "18 clicks"), base your grind size suggestion on those clicks (e.g., suggest "17 clicks" or "19 clicks"). Otherwise, provide a descriptive suggestion (e.g., "Medium-Fine").
 
-Return the response ONLY as a valid JSON object with the following structure:
+Return the response ONLY as a valid JSON object with the exact structure below. Do NOT include any explanatory text, greetings, apologies, or markdown formatting (like \`\`\`) before or after the JSON object.
+
 {
   "suggestionText": "<Your detailed textual suggestions here>",
-  "suggestedGrindSize": "<Specific suggested grind size, e.g., 'Medium-Fine' or '17 clicks', or null if no specific suggestion>",
+  "suggestedGrindSize": "<Specific suggested grind size in clicks, e.g., '17, 25, 35', or null if no specific suggestion>",
   "suggestedWaterTemp": "<Specific water temperature, e.g., '96°C', or null>",
   "suggestedSteepTimeSeconds": <Steep time in total seconds, e.g., 180, or null>,
   "suggestedUseBloom": <boolean, true if bloom is recommended, false otherwise>,
   "suggestedBloomTimeSeconds": <Bloom time in seconds, e.g., 30, or null if bloom is not recommended or time is unspecified>
-}
-Do not include the JSON structure itself within the suggestionText field.`;
+}`;
 
     console.log('Attempting OpenAI API call for brew suggestions...');
 
@@ -267,52 +294,21 @@ Do not include the JSON structure itself within the suggestionText field.`;
 
     console.log('Raw OpenAI response content:', messageContent);
 
-    try {
-      // Parse the entire response as JSON
-      let parsedResponse: BrewSuggestionResponse = JSON.parse(messageContent);
+    // Replace the try-catch block for parsing
+    const parsedResponse = extractJson(messageContent); // Use the helper
 
-      // --- BEGIN CLEANING ---
-      // Check if the parameter JSON is embedded in suggestionText and remove it
-      const jsonStartIndex = parsedResponse.suggestionText.lastIndexOf(',"suggestedGrindSize":');
-      if (jsonStartIndex !== -1) {
-        // Check if this looks like it's at the end of the string, possibly with minor trailing chars
-        const potentialEnd = parsedResponse.suggestionText.substring(jsonStartIndex).trim();
-        if (potentialEnd.endsWith('}')) {
-           console.log('Embedded parameter JSON found in suggestionText. Cleaning...');
-           parsedResponse.suggestionText = parsedResponse.suggestionText.substring(0, jsonStartIndex).trim();
-        }
+    if (parsedResponse) {
+      console.log('Parsed suggestion response:', parsedResponse);
+      // Basic type checking (can be more robust)
+      if (typeof parsedResponse.suggestionText === 'string') {
+        return parsedResponse as BrewSuggestionResponse;
+      } else {
+         console.error('Parsed JSON is missing required fields or has wrong types.');
+         throw new Error('Received invalid data structure from OpenAI.');
       }
-       // Also handle cases where it might start with { directly if it's the only thing
-      if (parsedResponse.suggestionText.trim().startsWith('{"suggestedGrindSize":')) {
-         console.log('Suggestion text seems to be only the parameter JSON. Clearing...');
-         // Or potentially try to extract a narrative if one exists before it? For now, clear.
-         parsedResponse.suggestionText = "Suggestion parameters received, but narrative text missing in response."; 
-      }
-      // --- END CLEANING ---
-
-      console.log('Parsed and cleaned suggestion response:', parsedResponse);
-      return parsedResponse;
-
-    } catch (parseError) {
-      console.error('Error parsing OpenAI response JSON:', parseError);
-      console.error('Raw content that failed parsing:', messageContent); // Log the raw content
-      // Attempt to extract suggestionText even if full JSON parsing fails,
-      // assuming the text might be present before malformed JSON.
-      // This is a basic fallback.
-      const textMatch = messageContent.match(/"suggestionText":\s*"([^"]*)"/);
-      if (textMatch && textMatch[1]) {
-        console.log('Fallback: Extracted suggestionText using regex.');
-        // Return a default structure with only the extracted text
-         return {
-            suggestionText: textMatch[1].replace(/\n/g, '\n'), // Handle escaped newlines
-            suggestedGrindSize: null,
-            suggestedWaterTemp: null,
-            suggestedSteepTimeSeconds: null,
-            suggestedUseBloom: false,
-            suggestedBloomTimeSeconds: null
-        };
-      }
-      // If even regex fails, throw a specific error
+    } else {
+      // Fallback logic is less reliable, throw error directly
+      console.error('Failed to extract valid JSON from OpenAI response.');
       throw new Error('Failed to parse or extract suggestion from OpenAI response.');
     }
   } catch (error) {
@@ -411,16 +407,16 @@ Please provide a comprehensive brewing guide for this bean, including:
 
 Respond with specific, actionable brewing advice to get the best flavor from this bean.
 
-Return the response ONLY as a valid JSON object with the following structure:
+Return the response ONLY as a valid JSON object with the exact structure below. Do NOT include any explanatory text, greetings, apologies, or markdown formatting (like \`\`\`) before or after the JSON object.
+
 {
   "suggestionText": "<Your detailed textual brewing guide here>",
-  "suggestedGrindSize": "<Specific suggested grind size, e.g., 'Medium-Fine' or '18 clicks', or null if no specific suggestion>",
+  "suggestedGrindSize": "<Specific suggested grind size, e.g., 'Medium-Fine', or null>",
   "suggestedWaterTemp": "<Specific water temperature, e.g., '96°C', or null>",
   "suggestedSteepTimeSeconds": <Steep time in total seconds, e.g., 180, or null>,
   "suggestedUseBloom": <boolean, true if bloom is recommended, false otherwise>,
-  "suggestedBloomTimeSeconds": <Bloom time in seconds, e.g., 30, or null if bloom is not recommended or time is unspecified>
-}
-Do not include the JSON structure itself within the suggestionText field.`;
+  "suggestedBloomTimeSeconds": <Bloom time in seconds, e.g., 30, or null>
+}`;
 
     console.log('Attempting OpenAI API call for generic brew suggestions...');
 
@@ -443,48 +439,21 @@ Do not include the JSON structure itself within the suggestionText field.`;
 
      console.log('Raw OpenAI response content (generic):', messageContent);
 
-    try {
-      // Parse the entire response as JSON
-       let parsedResponse: BrewSuggestionResponse = JSON.parse(messageContent);
+    // Replace the try-catch block for parsing
+    const parsedResponse = extractJson(messageContent); // Use the helper
 
-      // --- BEGIN CLEANING ---
-      // Check if the parameter JSON is embedded in suggestionText and remove it
-      const jsonStartIndex = parsedResponse.suggestionText.lastIndexOf(',"suggestedGrindSize":');
-       if (jsonStartIndex !== -1) {
-         // Check if this looks like it's at the end of the string, possibly with minor trailing chars
-         const potentialEnd = parsedResponse.suggestionText.substring(jsonStartIndex).trim();
-         if (potentialEnd.endsWith('}')) {
-           console.log('Embedded parameter JSON found in generic suggestionText. Cleaning...');
-            parsedResponse.suggestionText = parsedResponse.suggestionText.substring(0, jsonStartIndex).trim();
-         }
+    if (parsedResponse) {
+       console.log('Parsed generic suggestion response:', parsedResponse);
+      // Basic type checking (can be more robust)
+       if (typeof parsedResponse.suggestionText === 'string') {
+         return parsedResponse as BrewSuggestionResponse;
+       } else {
+          console.error('Parsed generic JSON is missing required fields or has wrong types.');
+          throw new Error('Received invalid data structure from OpenAI (generic).');
        }
-       // Also handle cases where it might start with { directly if it's the only thing
-       if (parsedResponse.suggestionText.trim().startsWith('{"suggestedGrindSize":')) {
-          console.log('Generic suggestion text seems to be only the parameter JSON. Clearing...');
-          parsedResponse.suggestionText = "Suggestion parameters received, but narrative text missing in response.";
-       }
-       // --- END CLEANING ---
-
-       console.log('Parsed and cleaned generic suggestion response:', parsedResponse);
-       return parsedResponse;
-
-    } catch (parseError) {
-      console.error('Error parsing OpenAI generic suggestion response JSON:', parseError);
-      console.error('Raw content that failed parsing (generic):', messageContent); // Log the raw content
-      // Fallback logic similar to getBrewSuggestions
-       const textMatch = messageContent.match(/"suggestionText":\s*"([^"]*)"/);
-       if (textMatch && textMatch[1]) {
-         console.log('Fallback: Extracted suggestionText using regex (generic).');
-         return {
-             suggestionText: textMatch[1].replace(/\n/g, '\n'),
-             suggestedGrindSize: null,
-             suggestedWaterTemp: null,
-             suggestedSteepTimeSeconds: null,
-             suggestedUseBloom: false,
-             suggestedBloomTimeSeconds: null
-         };
-       }
-      throw new Error('Failed to parse or extract suggestion from OpenAI response.');
+    } else {
+       console.error('Failed to extract valid JSON from OpenAI response (generic).');
+       throw new Error('Failed to parse or extract suggestion from OpenAI response (generic).');
     }
 
   } catch (error) {

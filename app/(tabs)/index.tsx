@@ -289,7 +289,6 @@ export default function BeansScreen() {
               bestBrew,
               sortedBrews,
               bean.name,
-              currentGrinderId,
               currentGrinderName
             );
             console.log(
@@ -348,13 +347,12 @@ export default function BeansScreen() {
         }
       }
       if (suggestionResponse) {
-        console.log("[getOptimalBrewSuggestions] Suggestion response obtained. Preparing navigation data...");
+        console.log("[getOptimalBrewSuggestions] Suggestion response obtained:", suggestionResponse);
         setModalSuggestionText(suggestionResponse.suggestionText || "No suggestion text provided.");
-        setNavigationData(null);
         setNavigationData({ bean: bean, suggestionResponse: suggestionResponse });
       } else {
-        console.log("[getOptimalBrewSuggestions] No suggestion obtained after all attempts.");
-        setModalSuggestionText("Could not generate brewing suggestions. Please try again later.");
+        console.log("[getOptimalBrewSuggestions] No valid suggestion obtained after parsing attempts.");
+        setModalSuggestionText("Could not generate or parse brewing suggestions. Please try again later.");
         setNavigationData(null);
       }
     } catch (error: any) {
@@ -366,8 +364,9 @@ export default function BeansScreen() {
         errorMessage = "No internet connection detected. Please check your network and try again.";
       } else if (error.message?.includes("timeout")) {
         errorMessage = "The request to OpenAI timed out. Please try again later.";
+      } else if (error.message?.includes("parse")) {
+        errorMessage = "Could not understand the suggestion format received. Please try again.";
       }
-      setBeanSuggestion(errorMessage);
       setModalSuggestionText(errorMessage);
       setNavigationData(null);
     } finally {
@@ -689,9 +688,32 @@ export default function BeansScreen() {
               </Text>
               <TouchableOpacity
                 onPress={() => {
-                  setSuggestionModalVisible(false);
-                  setNavigationData(null);
-                  setModalSuggestionText("");
+                  if (navigationData && navigationData.suggestionResponse) {
+                    console.log("[Modal Close Button] Navigating with data:", navigationData);
+                    const paramsToPass = {
+                      beanId: navigationData.bean.id,
+                      beanName: navigationData.bean.name,
+                      suggestion: navigationData.suggestionResponse.suggestionText || "",
+                      grindSize: navigationData.suggestionResponse.suggestedGrindSize || "",
+                      waterTemp: navigationData.suggestionResponse.suggestedWaterTemp || "",
+                      steepTime: navigationData.suggestionResponse.suggestedSteepTimeSeconds?.toString() || "",
+                      useBloom: navigationData.suggestionResponse.suggestedUseBloom ? "true" : "false",
+                      bloomTime: navigationData.suggestionResponse.suggestedBloomTimeSeconds?.toString() || "",
+                      fromSuggestion: "true",
+                    };
+                    console.log("[Modal Close Button] Params being passed:", paramsToPass);
+                    router.push({
+                      pathname: "/[beanId]/brew" as any,
+                      params: paramsToPass,
+                    });
+                    setNavigationData(null);
+                    setSuggestionModalVisible(false);
+                    setModalSuggestionText("");
+                  } else {
+                    console.error("[Modal Close Button] Navigation data or suggestionResponse is missing!");
+                    setSuggestionModalVisible(false);
+                    setModalSuggestionText("");
+                  }
                 }}
                 className="p-1"
               >
@@ -711,31 +733,55 @@ export default function BeansScreen() {
                 </Text>
               )}
             </ScrollView>
+            {(() => {
+              console.log("[Modal Render] Value of navigationData before button render:", navigationData);
+              return null; // This console.log is just for debugging, render nothing
+            })()}
+
             {navigationData ? (
               <Button
                 variant="default"
                 size="default"
                 className="bg-white"
                 onPress={() => {
-                  if (navigationData) {
-                    console.log("[Modal Close Button] Navigating with data...");
-                    router.push({
-                      pathname: "/[beanId]/brew" as any,
-                      params: {
-                        beanId: navigationData.bean.id,
-                        beanName: navigationData.bean.name,
-                        suggestion: navigationData.suggestionResponse.suggestionText || "",
-                        grindSize: navigationData.suggestionResponse.suggestedGrindSize || "",
-                        waterTemp: navigationData.suggestionResponse.suggestedWaterTemp || "",
-                        steepTime: navigationData.suggestionResponse.suggestedSteepTimeSeconds?.toString() || "",
-                        useBloom: navigationData.suggestionResponse.suggestedUseBloom ? "true" : "false",
-                        bloomTime: navigationData.suggestionResponse.suggestedBloomTimeSeconds?.toString() || "",
-                      },
-                    });
+                  // Log at the start of onPress
+                  console.log("[Modal Button Press] 'Use Suggestion' button pressed.");
+                  console.log("[Modal Button Press] Value of navigationData on press:", navigationData);
+
+                  if (navigationData && navigationData.suggestionResponse) { // Check suggestionResponse exists
+                    console.log("[Modal Close Button] Navigating with data:", navigationData);
+                    const paramsToPass = {
+                      beanId: navigationData.bean.id,
+                      beanName: navigationData.bean.name,
+                      suggestion: navigationData.suggestionResponse.suggestionText || "",
+                      grindSize: navigationData.suggestionResponse.suggestedGrindSize || "",
+                      waterTemp: navigationData.suggestionResponse.suggestedWaterTemp || "",
+                      steepTime: navigationData.suggestionResponse.suggestedSteepTimeSeconds?.toString() || "",
+                      useBloom: navigationData.suggestionResponse.suggestedUseBloom ? "true" : "false",
+                      bloomTime: navigationData.suggestionResponse.suggestedBloomTimeSeconds?.toString() || "",
+                      fromSuggestion: "true",
+                    };
+                    console.log("[Modal Close Button] Params being passed:", paramsToPass);
+                    try {
+                      router.push({
+                        pathname: "/[beanId]/brew" as any,
+                        params: paramsToPass,
+                      });
+                      console.log("[Modal Button Press] router.push executed.");
+                    } catch (e) {
+                      console.error("[Modal Button Press] Error during router.push:", e);
+                      Alert.alert("Navigation Error", "Could not navigate to the brew screen.");
+                    }
+                    // Reset state AFTER navigation setup
                     setNavigationData(null);
+                    setSuggestionModalVisible(false);
+                    setModalSuggestionText("");
+                  } else {
+                    console.error("[Modal Button Press] Navigation data or suggestionResponse is missing on press!");
+                    // Close modal even if data is bad
+                    setSuggestionModalVisible(false);
+                    setModalSuggestionText("");
                   }
-                  setSuggestionModalVisible(false);
-                  setModalSuggestionText("");
                 }}
               >
                 <Text className="text-charcoal font-bold">Use Suggestion & Brew</Text>
@@ -746,8 +792,10 @@ export default function BeansScreen() {
                 size="default"
                 className="bg-white"
                 onPress={() => {
+                  // Log at the start of onPress for the 'Close' button
+                  console.log("[Modal Button Press] 'Close' button pressed.");
                   setSuggestionModalVisible(false);
-                  setNavigationData(null);
+                  setNavigationData(null); // Reset just in case
                   setModalSuggestionText("");
                 }}
               >

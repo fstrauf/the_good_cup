@@ -108,6 +108,7 @@ const HomeScreenComponent = () => {
     steepTime?: string;
     useBloom?: string;
     bloomTime?: string;
+    fromSuggestion?: string;
   }>();
   const [beanName, setBeanName] = useState<string | null>(null);
   const [steepTimeSeconds, setSteepTimeSeconds] = useState(180);
@@ -129,11 +130,19 @@ const HomeScreenComponent = () => {
   // New state for suggestion modal
   const [suggestionModalVisible, setSuggestionModalVisible] = useState(false);
 
+  // Add new state variable near the top
+  const [suggestionApplied, setSuggestionApplied] = useState(false);
+
+  // Add a ref to store the timeout ID
+  const modalTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const router = useRouter();
   const navigation = useNavigation();
 
   useEffect(() => {
     console.log("[brew.tsx Effect] Received route params:", JSON.stringify(params));
+
+    // Always set bean name if available
     if (params.beanName) {
       setBeanName(params.beanName);
       console.log("[Effect] Bean name set from route params:", params.beanName);
@@ -141,30 +150,88 @@ const HomeScreenComponent = () => {
       console.warn("[Effect] No beanName found in route params.");
     }
 
-    // Set parameters from suggestion if provided
-    if (params.suggestion) {
-      setSuggestion(params.suggestion);
+    // Clear any existing modal timeout
+    if (modalTimeoutRef.current) {
+      clearTimeout(modalTimeoutRef.current);
+      modalTimeoutRef.current = null;
+    }
 
-      // Set form values if provided
-      if (params.grindSize) setGrindSize(params.grindSize);
-      if (params.waterTemp) setWaterTemp(params.waterTemp);
-
+    // Check if this navigation is from a suggestion
+    if (params.fromSuggestion === "true") {
+      console.log("[Effect] Processing suggestion parameters...");
+      
+      // ALWAYS update state if suggestion params are present
+      if (params.suggestion) {
+        setSuggestion(params.suggestion);
+      }
+      if (params.grindSize) {
+        console.log(`[Effect] Setting grindSize state with: ${params.grindSize}`);
+        setGrindSize(params.grindSize);
+      }
+      if (params.waterTemp) {
+        console.log(`[Effect] Setting waterTemp state with: ${params.waterTemp}`);
+        setWaterTemp(params.waterTemp);
+      }
       if (params.steepTime) {
         const time = parseInt(params.steepTime);
         if (!isNaN(time)) {
+          console.log(`[Effect] Setting steepTimeSeconds state with: ${time}`);
           setSteepTimeSeconds(time);
         }
       }
-
       if (params.useBloom === "true") {
+        console.log(`[Effect] Setting useBloom state to true`);
         setUseBloom(true);
-        if (params.bloomTime) setBloomTime(params.bloomTime);
+        if (params.bloomTime) {
+           const bloomSec = parseInt(params.bloomTime);
+           if(!isNaN(bloomSec)) {
+              const formattedBloom = formatTime(bloomSec);
+              console.log(`[Effect] Setting bloomTime state with: ${formattedBloom}`);
+              setBloomTime(formattedBloom);
+           } else {
+              console.log(`[Effect] Setting bloomTime state with raw value: ${params.bloomTime}`);
+              setBloomTime(params.bloomTime); // Use raw string if not numeric seconds
+           }
+        }
+      } else {
+         console.log(`[Effect] Setting useBloom state to false`);
+         setUseBloom(false); 
+         setBloomTime("");
       }
 
-      // Show suggestion modal after a short delay to ensure the screen is fully loaded
-      setTimeout(() => setSuggestionModalVisible(true), 300);
+      // NOW, check if the modal should be shown (only if not already applied)
+      if (!suggestionApplied) {
+        // Schedule the modal to open
+        modalTimeoutRef.current = setTimeout(() => {
+          setSuggestionModalVisible(true);
+          modalTimeoutRef.current = null; // Clear ref after execution
+        }, 100);
+        // Mark suggestion as applied (so modal doesn't reopen)
+        setSuggestionApplied(true);
+        console.log("[Effect] Suggestion parameters applied and modal scheduled.");
+      } else {
+        console.log("[Effect] Suggestion parameters applied, but modal already shown/applied, skipping modal display.");
+        // Ensure modal isn't visible if we land here unexpectedly
+         setSuggestionModalVisible(false);
+      }
+
+    } else {
+       console.log("[Effect] Not a navigation from suggestion or no suggestion param found.");
+       // Reset suggestionApplied flag and ensure modal is closed if navigating normally
+       setSuggestionApplied(false);
+       setSuggestionModalVisible(false);
     }
-  }, [params]);
+
+    // Cleanup function remains the same
+    return () => {
+      if (modalTimeoutRef.current) {
+        clearTimeout(modalTimeoutRef.current);
+        modalTimeoutRef.current = null;
+        console.log("[Effect Cleanup] Cleared modal timeout.");
+      }
+    };
+
+  }, [params]); // Keep dependency array as [params]
 
   // Effect to update header title
   useEffect(() => {
@@ -348,6 +415,8 @@ const HomeScreenComponent = () => {
 
   console.log("[Render] Brew Device Options:", brewDeviceOptions);
   console.log("[Render] Grinder Options:", grinderOptions);
+
+  console.log("[Render] Current waterTemp state:", waterTemp);
 
   if (!beanName) {
     return (
