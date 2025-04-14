@@ -9,6 +9,8 @@ node_modules/
 **/node_modules/
 
 # Expo
+ios/
+/ios/
 .expo/
 dist/
 web-build/

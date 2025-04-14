@@ -24,6 +24,9 @@ import { Text } from "../../components/ui/text";
 import { Plus, Camera, Image as LucideImage, X, Coffee, XCircle, Mountain } from "lucide-react-native";
 import { cn } from "../../lib/utils";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import DateTimePicker from 'react-native-ui-datepicker';
+import { useDefaultClassNames } from 'react-native-ui-datepicker';
+import dayjs from 'dayjs';
 
 // --- Tailwind --- 
 import resolveConfig from 'tailwindcss/resolveConfig';
@@ -46,6 +49,7 @@ interface Bean {
   description: string;
   photo?: string; // Base64 encoded image
   timestamp: number;
+  roastedDate?: number;
 }
 
 // Simplified Brew interface for extracting bean info
@@ -78,12 +82,14 @@ export default function BeansScreen() {
   const [loading, setLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [editingBean, setEditingBean] = useState<Bean | null>(null);
   const [newBean, setNewBean] = useState<Partial<Bean>>({
     name: "",
     roastLevel: "",
     flavorNotes: [],
     description: "",
     photo: undefined,
+    roastedDate: undefined,
   });
   const [suggestionModalVisible, setSuggestionModalVisible] = useState(false);
   const [selectedBeanForSuggestion, setSelectedBeanForSuggestion] = useState<Bean | null>(null);
@@ -91,6 +97,8 @@ export default function BeansScreen() {
   const [gettingSuggestion, setGettingSuggestion] = useState(false);
   const [navigationData, setNavigationData] = useState<NavigationParams | null>(null);
   const [modalSuggestionText, setModalSuggestionText] = useState<string>("");
+  const [isDatePickerOpen, setDatePickerOpen] = useState(false);
+  const defaultClassNames = useDefaultClassNames();
 
   const loadBeans = useCallback(async () => {
     try {
@@ -113,8 +121,9 @@ export default function BeansScreen() {
   );
   const saveBeans = async (updatedBeans: Bean[]) => {
     try {
-      await AsyncStorage.setItem(BEANS_STORAGE_KEY, JSON.stringify(updatedBeans));
-      setBeans(updatedBeans);
+      const sortedBeans = updatedBeans.sort((a, b) => b.timestamp - a.timestamp);
+      await AsyncStorage.setItem(BEANS_STORAGE_KEY, JSON.stringify(sortedBeans));
+      setBeans(sortedBeans);
     } catch (error) {
       console.error("Error saving beans:", error);
       Alert.alert("Error", "Failed to save beans.");
@@ -129,17 +138,19 @@ export default function BeansScreen() {
     try {
       const beanToAdd: Bean = {
         id: Date.now().toString(),
-        name: newBean.name,
+        name: newBean.name!,
         roastLevel: newBean.roastLevel || "unknown",
         flavorNotes: newBean.flavorNotes || [],
         description: newBean.description || "",
         photo: newBean.photo,
         timestamp: Date.now(),
+        roastedDate: newBean.roastedDate,
       };
       const updatedBeans = [...beans, beanToAdd];
       await saveBeans(updatedBeans);
-      setNewBean({ name: "", roastLevel: "", flavorNotes: [], description: "", photo: undefined });
+      setNewBean({ name: "", roastLevel: "", flavorNotes: [], description: "", photo: undefined, roastedDate: undefined });
       setShowAddForm(false);
+      setEditingBean(null);
       Alert.alert("Success", "Bean added successfully!");
     } catch (error) {
       console.error("Error adding bean:", error);
@@ -147,7 +158,47 @@ export default function BeansScreen() {
     }
     setLoading(false);
   };
+  const updateBean = async () => {
+    if (!editingBean) return; // Should not happen if button logic is correct
+    if (!newBean.name) {
+      Alert.alert("Missing Information", "Please enter at least a name.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const updatedBeans = beans.map(bean => {
+        if (bean.id === editingBean.id) {
+          // Return the updated bean data from the form state
+          return {
+            ...bean, // Keep original ID and timestamp
+            name: newBean.name!,
+            roastLevel: newBean.roastLevel || 'unknown',
+            flavorNotes: newBean.flavorNotes || [],
+            description: newBean.description || '',
+            photo: newBean.photo,
+            roastedDate: newBean.roastedDate,
+          };
+        }
+        return bean; // Return unmodified beans
+      });
+
+      await saveBeans(updatedBeans); // Save the updated array (handles sorting)
+      setNewBean({ name: "", roastLevel: "", flavorNotes: [], description: "", photo: undefined, roastedDate: undefined });
+      setShowAddForm(false);
+      setEditingBean(null);
+      Alert.alert("Success", "Bean updated successfully!");
+    } catch (error) {
+      console.error("Error updating bean:", error);
+      Alert.alert("Error", "Failed to update bean.");
+    }
+    setLoading(false);
+  };
   const deleteBean = async (id: string) => {
+    if (editingBean && editingBean.id === id) {
+      Alert.alert("Cannot Delete", "You are currently editing this bean. Please cancel or save your changes first.");
+      return;
+    }
     Alert.alert("Confirm Delete", "Are you sure you want to delete this bean?", [
       { text: "Cancel", style: "cancel" },
       {
@@ -222,14 +273,10 @@ export default function BeansScreen() {
       const flavorNotes = extractedData["Flavor notes"];
       const description = extractedData["Description"];
 
-      // Update form with extracted data
-      // const validRoastLevel = roastLevelOptions.find(o => o.label.toLowerCase() === roastLevel?.toLowerCase())?.value; // Comment out usage
-
       setNewBean((prev) => ({
         ...prev,
         name: beanName || prev.name,
-        // roastLevel: validRoastLevel || prev.roastLevel || 'unknown', // Comment out usage
-        roastLevel: roastLevel || prev.roastLevel || "unknown", // Use extracted value directly or fallback
+        roastLevel: roastLevel || prev.roastLevel || "unknown",
         flavorNotes: flavorNotes || prev.flavorNotes,
         description: description || prev.description,
       }));
@@ -254,8 +301,30 @@ export default function BeansScreen() {
     }
     setAnalyzing(false);
   };
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const formatDate = (timestamp?: number): string => {
+    if (!timestamp) return 'N/A';
+    try {
+      return dayjs(timestamp).format('MMM D, YYYY');
+    } catch (e) {
+      console.error("Error formatting date with dayjs:", e);
+      return 'Invalid Date';
+    }
+  };
+  const handleEditBean = (bean: Bean) => {
+    console.log(`Editing bean: ${bean.name} (ID: ${bean.id})`);
+    setEditingBean(bean); // Set the bean to be edited
+    // Populate the form state with the selected bean's data
+    setNewBean({
+      name: bean.name,
+      roastLevel: bean.roastLevel,
+      flavorNotes: bean.flavorNotes,
+      description: bean.description,
+      photo: bean.photo,
+      roastedDate: bean.roastedDate,
+      // Do NOT copy id or timestamp here, those are handled separately
+    });
+    setShowAddForm(true); // Show the form
+    // Optionally scroll to top or focus first input
   };
   const getOptimalBrewSuggestions = async (bean: Bean) => {
     setSelectedBeanForSuggestion(bean);
@@ -325,16 +394,11 @@ export default function BeansScreen() {
           `[getOptimalBrewSuggestions] No history or history suggestion failed. Attempting generic suggestion.`
         );
         try {
-          // Get the roast level label instead of value
-          // const roastLevelLabel = roastLevelOptions.find(o => o.value === bean.roastLevel)?.label || bean.roastLevel; // Comment out usage
-          const roastLevelLabel = bean.roastLevel; // Use existing value directly
-
-          // Create a bean object with the label instead of the value
+          const roastLevelLabel = bean.roastLevel;
           const beanWithLabel = {
             ...bean,
             roastLevel: roastLevelLabel,
           };
-
           console.log(`[getOptimalBrewSuggestions] Calling generateGenericBrewSuggestion API...`);
           suggestionResponse = await generateGenericBrewSuggestion(beanWithLabel);
           console.log(
@@ -409,177 +473,193 @@ export default function BeansScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-soft-off-white" edges={["top", "left", "right"]}>
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
-      >
-        <View className="flex-1 bg-soft-off-white">
-          <View className="mx-3 mt-3 mb-2 rounded-xl p-4 bg-soft-off-white border border-pale-gray shadow-sm">
-            <View className="flex-row items-center justify-between">
-              <Text className="text-2xl font-semibold text-charcoal">Coffee Beans</Text>
-              <Button
-                variant={showAddForm ? "outline" : "default"}
-                size="sm"
-                onPress={() => setShowAddForm(!showAddForm)}
-                className={showAddForm ? "bg-light-beige border-pebble-gray" : "bg-muted-sage-green"}
-              >
-                <Text className="text-charcoal">
-                  {showAddForm ? "Cancel" : "Add Bean"}
+      <View className="flex-1 bg-soft-off-white">
+        <View className="mx-3 mt-3 mb-2 rounded-xl p-4 bg-soft-off-white border border-pale-gray shadow-sm">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-2xl font-semibold text-charcoal">{editingBean ? 'Edit Bean' : 'Coffee Beans'}</Text>
+            <Button
+              variant={showAddForm ? "outline" : "default"}
+              size="sm"
+              onPress={() => {
+                if (showAddForm) {
+                  setEditingBean(null);
+                  setNewBean({ name: "", roastLevel: "", flavorNotes: [], description: "", photo: undefined, roastedDate: undefined });
+                }
+                setShowAddForm(!showAddForm);
+              }}
+              className={showAddForm ? "bg-light-beige border-pebble-gray" : "bg-muted-sage-green"}
+            >
+              <Text className={cn("font-medium", showAddForm ? "text-charcoal" : "text-white")}>
+                {showAddForm ? "Cancel" : "Add Bean"}
+              </Text>
+            </Button>
+          </View>
+        </View>
+
+        {showAddForm ? (
+          <View className="flex-1">
+            <ScrollView
+              className="px-3"
+              contentContainerStyle={{ paddingBottom: 20 }}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View className="bg-soft-off-white p-4 rounded-lg mb-4">
+                <Text className="text-xl font-semibold mb-4 text-center text-charcoal">
+                  {editingBean ? 'Update Bean Details' : 'Add New Bean'}
                 </Text>
+                <View className="relative items-center mb-4">
+                  {newBean.photo ? (
+                    <Image
+                      source={{ uri: newBean.photo }}
+                      className="w-full h-48 rounded-lg mb-2 border border-pebble-gray"
+                    />
+                  ) : (
+                    <View className="w-full h-48 rounded-lg bg-light-beige justify-center items-center mb-2 border border-dashed border-pebble-gray">
+                      <LucideImage size={40} color="#A8B9AE" />
+                      <Text className="text-cool-gray-green mt-2">No Photo</Text>
+                    </View>
+                  )}
+                  <View className="flex-row justify-center mt-2 space-x-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onPress={takePhoto}
+                      className="bg-light-beige border-pebble-gray flex-row items-center"
+                    >
+                      <Camera size={16} className="text-charcoal mr-1.5" strokeWidth={2} />
+                      <Text className="text-charcoal text-sm">Camera</Text>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onPress={pickImage}
+                      className="bg-light-beige border-pebble-gray flex-row items-center"
+                    >
+                      <LucideImage size={16} className="text-charcoal mr-1.5" strokeWidth={2} />
+                      <Text className="text-charcoal text-sm">Gallery</Text>
+                    </Button>
+                  </View>
+                  {analyzing && (
+                    <View className="absolute top-0 left-0 right-0 bottom-0 bg-charcoal/70 rounded-lg justify-center items-center">
+                      <ActivityIndicator size="large" color="#D4E2D4" />
+                      <Text className="mt-3 text-soft-off-white font-medium">Analyzing photo...</Text>
+                    </View>
+                  )}
+                </View>
+                <View className="h-px bg-pale-gray my-4" />
+                <View className="mb-2">
+                  <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Bean Name *</Text>
+                  <TextInput
+                    value={newBean.name}
+                    onChangeText={(text: string) => setNewBean({ ...newBean, name: text })}
+                    placeholder="e.g., Ethiopia Yirgacheffe"
+                    style={styles.inputStyle}
+                    placeholderTextColor={themeColors['cool-gray-green']}
+                  />
+                </View>
+                <View className="mb-2 mt-4">
+                  <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Roast Level</Text>
+                  <Select
+                    value={newBean.roastLevel ? { value: newBean.roastLevel, label: newBean.roastLevel } : undefined}
+                    onValueChange={(option) => option && setNewBean({ ...newBean, roastLevel: option.value })}
+                  >
+                    <SelectTrigger className="border-pebble-gray bg-soft-off-white h-[50px]">
+                      <SelectValue
+                        className="text-charcoal"
+                        placeholder="Select roast level"
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="light" label="Light">Light</SelectItem>
+                        <SelectItem value="medium-light" label="Medium Light">Medium Light</SelectItem>
+                        <SelectItem value="medium" label="Medium">Medium</SelectItem>
+                        <SelectItem value="medium-dark" label="Medium Dark">Medium Dark</SelectItem>
+                        <SelectItem value="dark" label="Dark">Dark</SelectItem>
+                        <SelectItem value="unknown" label="Unknown">Unknown</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </View>
+                <View className="mb-2 mt-4">
+                  <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Roasted Date</Text>
+                  <TouchableOpacity
+                    onPress={() => setDatePickerOpen(true)}
+                    className="border border-pebble-gray rounded-lg bg-soft-off-white h-[50px] justify-center px-2.5"
+                    activeOpacity={0.7}
+                  >
+                    <Text className={cn("text-base", newBean.roastedDate ? "text-charcoal" : "text-cool-gray-green")}>
+                      {newBean.roastedDate ? formatDate(newBean.roastedDate) : "Select Roasted Date (Optional)"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View className="mb-2 mt-4">
+                  <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Flavor Notes (comma separated)</Text>
+                  <TextInput
+                    value={newBean.flavorNotes?.join(", ")}
+                    onChangeText={(text: string) =>
+                      setNewBean({
+                        ...newBean,
+                        flavorNotes: text
+                          .split(",")
+                          .map((note: string) => note.trim())
+                          .filter((note: string) => note),
+                      })
+                    }
+                    placeholder="e.g., Blueberry, Chocolate, Citrus"
+                    style={styles.inputStyle}
+                    placeholderTextColor={themeColors['cool-gray-green']}
+                  />
+                </View>
+                <View className="mb-2 mt-4">
+                  <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Description</Text>
+                  <TextInput
+                    value={newBean.description}
+                    onChangeText={(text: string) => setNewBean({ ...newBean, description: text })}
+                    placeholder="Additional notes about this coffee"
+                    multiline
+                    numberOfLines={3}
+                    style={[styles.inputStyle, { minHeight: 80, textAlignVertical: "top", paddingTop: 10 }]}
+                    placeholderTextColor={themeColors['cool-gray-green']}
+                  />
+                </View>
+              </View>
+            </ScrollView>
+
+            <View className="bg-soft-off-white py-2.5 px-4 border-t border-pale-gray shadow-lg">
+              <Button
+                variant="default"
+                size="default"
+                onPress={editingBean ? updateBean : addBean}
+                className="bg-muted-sage-green h-12"
+                disabled={loading || !newBean.name}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text className="text-white font-bold">{editingBean ? 'Save Changes' : 'Save Bean'}</Text>
+                )}
               </Button>
             </View>
           </View>
-          {showAddForm ? (
-            <View className="flex-1">
-              <View style={{ flex: 1 }}>
-                <ScrollView
-                  className="px-3"
-                  contentContainerStyle={{ paddingBottom: 120 }}
-                  showsVerticalScrollIndicator={true}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  <View className="bg-soft-off-white p-4 rounded-lg mb-4">
-                    <Text className="text-xl font-semibold mb-4 text-center text-charcoal">Add New Bean</Text>
-                    <View className="relative items-center mb-4">
-                      {newBean.photo ? (
-                        <Image
-                          source={{ uri: newBean.photo }}
-                          className="w-full h-48 rounded-lg mb-2 border border-pebble-gray"
-                        />
-                      ) : (
-                        <View className="w-full h-48 rounded-lg bg-light-beige justify-center items-center mb-2 border border-dashed border-pebble-gray">
-                          <LucideImage size={40} color="#A8B9AE" />
-                          <Text className="text-cool-gray-green mt-2">No Photo</Text>
-                        </View>
-                      )}
-                      <View className="flex-row justify-center mt-2 space-x-3">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onPress={takePhoto}
-                          className="bg-light-beige border-pebble-gray flex-row items-center"
-                        >
-                          <Camera size={16} className="text-charcoal mr-1.5" strokeWidth={2} />
-                          <Text className="text-charcoal text-sm">Camera</Text>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onPress={pickImage}
-                          className="bg-light-beige border-pebble-gray flex-row items-center"
-                        >
-                          <LucideImage size={16} className="text-charcoal mr-1.5" strokeWidth={2} />
-                          <Text className="text-charcoal text-sm">Gallery</Text>
-                        </Button>
-                      </View>
-                      {analyzing && (
-                        <View className="absolute top-0 left-0 right-0 bottom-0 bg-charcoal/70 rounded-lg justify-center items-center">
-                          <ActivityIndicator size="large" color="#D4E2D4" />
-                          <Text className="mt-3 text-soft-off-white font-medium">Analyzing photo...</Text>
-                        </View>
-                      )}
-                    </View>
-                    <View className="h-px bg-pale-gray my-4" />
-                    <View className="mb-2">
-                      <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Bean Name</Text>
-                      <TextInput
-                        value={newBean.name}
-                        onChangeText={(text: string) => setNewBean({ ...newBean, name: text })}
-                        placeholder="e.g., Ethiopia Yirgacheffe"
-                        style={styles.inputStyle}
-                        placeholderTextColor={themeColors['cool-gray-green']}
-                      />
-                    </View>
-                    <View className="mb-2 mt-4">
-                      <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Roast Level</Text>
-                      <Select
-                        value={newBean.roastLevel ? { value: newBean.roastLevel, label: newBean.roastLevel } : undefined}
-                        onValueChange={(option) => option && setNewBean({ ...newBean, roastLevel: option.value })}
-                        disabled={true}
-                      >
-                        <SelectTrigger className="border-pebble-gray bg-soft-off-white h-[50px]">
-                          <SelectValue 
-                            className="text-charcoal" 
-                            placeholder="Select roast level (Auto-filled)" 
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="light" label="Light">Light</SelectItem>
-                            <SelectItem value="medium-light" label="Medium Light">Medium Light</SelectItem>
-                            <SelectItem value="medium" label="Medium">Medium</SelectItem>
-                            <SelectItem value="medium-dark" label="Medium Dark">Medium Dark</SelectItem>
-                            <SelectItem value="dark" label="Dark">Dark</SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </View>
-                    <View className="mb-2 mt-4">
-                      <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Flavor Notes (comma separated)</Text>
-                      <TextInput
-                        value={newBean.flavorNotes?.join(", ")}
-                        onChangeText={(text: string) =>
-                          setNewBean({
-                            ...newBean,
-                            flavorNotes: text
-                              .split(",")
-                              .map((note: string) => note.trim())
-                              .filter((note: string) => note),
-                          })
-                        }
-                        placeholder="e.g., Blueberry, Chocolate, Citrus"
-                        style={styles.inputStyle}
-                        placeholderTextColor={themeColors['cool-gray-green']}
-                      />
-                    </View>
-                    <View className="mb-2 mt-4">
-                      <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-2.5">Description</Text>
-                      <TextInput
-                        value={newBean.description}
-                        onChangeText={(text: string) => setNewBean({ ...newBean, description: text })}
-                        placeholder="Additional notes about this coffee"
-                        multiline
-                        numberOfLines={3}
-                        style={[styles.inputStyle, { minHeight: 80, textAlignVertical: "top", paddingTop: 10 }]}
-                        placeholderTextColor={themeColors['cool-gray-green']}
-                      />
-                    </View>
-                  </View>
-                </ScrollView>
+        ) : (
+          <ScrollView className="flex-1 px-3 pt-2">
+            {beans.length === 0 ? (
+              <View className="mx-0 my-4 rounded-xl p-6 items-center bg-soft-off-white border border-pale-gray">
+                <Coffee size={40} color={themeColors['cool-gray-green']} />
+                <Text className="text-lg font-semibold text-charcoal mt-3 mb-2">No beans added yet</Text>
+                <Text className="text-sm text-cool-gray-green text-center">
+                  Add your first coffee bean using the 'Add Bean' button above.
+                </Text>
               </View>
-              <View className="bg-soft-off-white py-2.5 px-4 border-t border-pale-gray shadow-lg">
-                <Button
-                  variant="default"
-                  size="default"
-                  onPress={addBean}
-                  className="bg-muted-sage-green h-12"
-                  disabled={loading}
+            ) : (
+              beans.map((bean) => (
+                <View
+                  key={bean.id}
+                  className="mx-0 mb-4 rounded-xl p-0 bg-soft-off-white border border-pale-gray shadow-sm overflow-hidden"
                 >
-                  {loading ? (
-                    <ActivityIndicator color="#4A4A4A" />
-                  ) : (
-                    <Text className="text-charcoal font-bold">Save Bean</Text>
-                  )}
-                </Button>
-              </View>
-            </View>
-          ) : (
-            <ScrollView className="flex-1 px-3 pt-2">
-              {beans.length === 0 ? (
-                <View className="mx-0 my-4 rounded-xl p-6 items-center bg-soft-off-white border border-pale-gray">
-                  <Coffee size={40} color={themeColors['cool-gray-green']} />
-                  <Text className="text-lg font-semibold text-charcoal mt-3 mb-2">No beans added yet</Text>
-                  <Text className="text-sm text-cool-gray-green text-center">
-                    Add your first coffee bean using the 'Add Bean' button above.
-                  </Text>
-                </View>
-              ) : (
-                beans.map((bean) => (
-                  <View
-                    key={bean.id}
-                    className="mx-0 mb-4 rounded-xl p-0 bg-soft-off-white border border-pale-gray shadow-sm overflow-hidden"
-                  >
+                  <TouchableOpacity activeOpacity={0.8} onPress={() => handleEditBean(bean)}>
                     <View className="flex-row p-4">
                       {bean.photo ? (
                         <Image
@@ -596,9 +676,11 @@ export default function BeansScreen() {
                           <Text className="text-lg font-semibold text-charcoal flex-shrink mr-2" numberOfLines={2}>
                             {bean.name}
                           </Text>
-                          <TouchableOpacity onPress={() => deleteBean(bean.id)} className="p-1 -mt-1 -mr-1">
-                            <XCircle size={22} color={themeColors['cool-gray-green']} />
-                          </TouchableOpacity>
+                          {!editingBean || editingBean.id !== bean.id ? (
+                              <TouchableOpacity onPress={(e) => { e.stopPropagation(); deleteBean(bean.id); }} className="p-1 -mt-1 -mr-1">
+                                <XCircle size={22} color={themeColors['cool-gray-green']} />
+                              </TouchableOpacity>
+                          ) : null }
                         </View>
                         <View className="h-px bg-pale-gray my-2" />
                         <View className="flex-1">
@@ -625,55 +707,120 @@ export default function BeansScreen() {
                               {bean.description}
                             </Text>
                           )}
+                          {bean.roastedDate && (
+                            <Text className="text-sm text-charcoal/80 mt-1.5">
+                              Roasted: <Text className="font-medium">{formatDate(bean.roastedDate)}</Text>
+                            </Text>
+                          )}
                           <Text className="text-xs text-cool-gray-green mt-2 text-right">
                             Added: {formatDate(bean.timestamp)}
                           </Text>
                         </View>
                       </View>
                     </View>
-                    <View className="flex-row justify-around items-center mt-2 pt-3 pb-2 border-t border-pale-gray bg-light-beige/50">
-                      <TouchableOpacity
-                        className="flex-1 items-center px-1 py-1"
-                        onPress={() =>
-                          router.push({
-                            pathname: "/[beanId]/brew" as any,
-                            params: { beanId: bean.id, beanName: bean.name },
-                          })
-                        }
-                      >
-                        <Image source={require("../../assets/images/brew.png")} style={{ width: 52, height: 52 }} />
-                        <Text className="text-xs text-center text-cool-gray-green mt-1 font-medium">Brew</Text>
-                      </TouchableOpacity>
-                      <View className="h-full w-px bg-pale-gray" />
-                      <TouchableOpacity
-                        className="flex-1 items-center px-1 py-1"
-                        onPress={() =>
-                          router.push({
-                            pathname: "/[beanId]/brews" as any,
-                            params: { beanId: bean.id, beanName: bean.name },
-                          })
-                        }
-                      >
-                        <Image source={require("../../assets/images/past_brews.png")} style={{ width: 52, height: 52 }} />
-                        <Text className="text-xs text-center text-cool-gray-green mt-1 font-medium">History</Text>
-                      </TouchableOpacity>
-                      <View className="h-full w-px bg-pale-gray" />
-                      <TouchableOpacity
-                        className="flex-1 items-center px-1 py-1"
-                        onPress={() => getOptimalBrewSuggestions(bean)}
-                      >
-                        <Image source={require("../../assets/images/suggest_brew.png")} style={{ width: 52, height: 52 }} />
-                        <Text className="text-xs text-center text-cool-gray-green mt-1 font-medium">Suggest</Text>
-                      </TouchableOpacity>
-                    </View>
+                  </TouchableOpacity>
+                  <View className="flex-row justify-around items-center mt-2 pt-3 pb-2 border-t border-pale-gray bg-light-beige/50">
+                    {(!editingBean || editingBean.id !== bean.id) ? (
+                      <>
+                        <TouchableOpacity
+                          className="flex-1 items-center px-1 py-1"
+                          onPress={() =>
+                            router.push({
+                              pathname: "/[beanId]/brew" as any,
+                              params: { beanId: bean.id, beanName: bean.name },
+                            })
+                          }
+                        >
+                          <Image source={require("../../assets/images/brew.png")} style={{ width: 52, height: 52 }} />
+                          <Text className="text-xs text-center text-cool-gray-green mt-1 font-medium">Brew</Text>
+                        </TouchableOpacity>
+                        <View className="h-full w-px bg-pale-gray" />
+                        <TouchableOpacity
+                          className="flex-1 items-center px-1 py-1"
+                          onPress={() =>
+                            router.push({
+                              pathname: "/[beanId]/brews" as any,
+                              params: { beanId: bean.id, beanName: bean.name },
+                            })
+                          }
+                        >
+                          <Image source={require("../../assets/images/past_brews.png")} style={{ width: 52, height: 52 }} />
+                          <Text className="text-xs text-center text-cool-gray-green mt-1 font-medium">History</Text>
+                        </TouchableOpacity>
+                        <View className="h-full w-px bg-pale-gray" />
+                        <TouchableOpacity
+                          className="flex-1 items-center px-1 py-1"
+                          onPress={() => getOptimalBrewSuggestions(bean)}
+                        >
+                          <Image source={require("../../assets/images/suggest_brew.png")} style={{ width: 52, height: 52 }} />
+                          <Text className="text-xs text-center text-cool-gray-green mt-1 font-medium">Suggest</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <View className="flex-1 h-[77px] justify-center items-center"> {/* Match height approx */} 
+                         <Text className="text-sm text-cool-gray-green italic">Editing...</Text>
+                      </View>
+                    )}
                   </View>
-                ))
-              )}
-              <View className="h-5" />
-            </ScrollView>
-          )}
+                </View>
+              ))
+            )}
+            <View className="h-5" />
+          </ScrollView>
+        )}
+      </View>
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={isDatePickerOpen}
+        onRequestClose={() => setDatePickerOpen(false)}
+      >
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          className="bg-black/30"
+          onPress={() => setDatePickerOpen(false)}
+          activeOpacity={1}
+        />
+        <View className="flex-1 justify-center items-center px-4">
+          <View className="bg-soft-off-white rounded-xl shadow-xl w-full overflow-hidden">
+            <View className="p-3 border-b border-pale-gray bg-light-beige/50 flex-row justify-between items-center">
+                <Text className="text-lg font-semibold text-charcoal">Select Roasted Date</Text>
+                 <TouchableOpacity onPress={() => setDatePickerOpen(false)} className="p-1">
+                   <X size={20} color={themeColors['cool-gray-green']}/>
+                 </TouchableOpacity>
+            </View>
+            <View className="p-2">
+              <DateTimePicker
+                mode="single"
+                date={newBean.roastedDate ? dayjs(newBean.roastedDate) : dayjs()}
+                onChange={(params) => {
+                  if (params.date) {
+                    const selectedDate = dayjs(params.date);
+                    if (selectedDate.isValid()) {
+                      setNewBean(prev => ({ ...prev, roastedDate: selectedDate.valueOf() }));
+                    } else {
+                       console.warn("Invalid date selected from picker");
+                    }
+                  } else {
+                     console.log("DateTimePicker onChange called without a date.");
+                  }
+                }}
+                 maxDate={dayjs()}
+                 classNames={{
+                   ...defaultClassNames,
+                   selected: `bg-muted-sage-green ${defaultClassNames.selected}`,
+                   selected_label: `text-white ${defaultClassNames.selected_label}`
+                 }}
+              />
+            </View>
+             <View className="px-4 pb-4 pt-2 border-t border-pale-gray">
+               <Button onPress={() => setDatePickerOpen(false)} className="bg-muted-sage-green">
+                 <Text className="text-white font-bold">Done</Text>
+               </Button>
+             </View>
+          </View>
         </View>
-      </KeyboardAvoidingView>
+      </Modal>
       <Modal
         animationType="slide"
         transparent={true}
@@ -733,10 +880,6 @@ export default function BeansScreen() {
                 </Text>
               )}
             </ScrollView>
-            {(() => {
-              console.log("[Modal Render] Value of navigationData before button render:", navigationData);
-              return null; // This console.log is just for debugging, render nothing
-            })()}
 
             {navigationData ? (
               <Button
@@ -744,11 +887,10 @@ export default function BeansScreen() {
                 size="default"
                 className="bg-muted-sage-green"
                 onPress={() => {
-                  // Log at the start of onPress
                   console.log("[Modal Button Press] 'Use Suggestion' button pressed.");
                   console.log("[Modal Button Press] Value of navigationData on press:", navigationData);
 
-                  if (navigationData && navigationData.suggestionResponse) { // Check suggestionResponse exists
+                  if (navigationData && navigationData.suggestionResponse) {
                     console.log("[Modal Close Button] Navigating with data:", navigationData);
                     const paramsToPass = {
                       beanId: navigationData.bean.id,
@@ -772,13 +914,11 @@ export default function BeansScreen() {
                       console.error("[Modal Button Press] Error during router.push:", e);
                       Alert.alert("Navigation Error", "Could not navigate to the brew screen.");
                     }
-                    // Reset state AFTER navigation setup
                     setNavigationData(null);
                     setSuggestionModalVisible(false);
                     setModalSuggestionText("");
                   } else {
                     console.error("[Modal Button Press] Navigation data or suggestionResponse is missing on press!");
-                    // Close modal even if data is bad
                     setSuggestionModalVisible(false);
                     setModalSuggestionText("");
                   }
@@ -792,10 +932,9 @@ export default function BeansScreen() {
                 size="default"
                 className="bg-soft-off-white border-cool-gray-green"
                 onPress={() => {
-                  // Log at the start of onPress for the 'Close' button
                   console.log("[Modal Button Press] 'Close' button pressed.");
                   setSuggestionModalVisible(false);
-                  setNavigationData(null); // Reset just in case
+                  setNavigationData(null);
                   setModalSuggestionText("");
                 }}
               >
