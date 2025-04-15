@@ -1,21 +1,13 @@
 {
   "functions": {
-    "brew-suggestion.ts": {
-      "memory": 1024,
-      "maxDuration": 10
-    },
-    "brew-suggestions.ts": {
-      "memory": 1024,
-      "maxDuration": 10
-    },
-    "analyze-image.ts": {
+    "api/**/*.ts": {
       "memory": 1024,
       "maxDuration": 10
     }
   },
   "routes": [
-    { "src": "/brew-suggestion", "dest": "/brew-suggestion.ts" },
-    { "src": "/brew-suggestions", "dest": "/brew-suggestions.ts" },
-    { "src": "/analyze-image", "dest": "/analyze-image.ts" }
+    { "src": "/brew-suggestion", "dest": "/api/brew-suggestion.ts" },
+    { "src": "/brew-suggestions", "dest": "/api/brew-suggestions.ts" },
+    { "src": "/analyze-image", "dest": "/api/analyze-image.ts" }
   ]
 } 
