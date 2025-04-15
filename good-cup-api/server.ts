@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
 import dotenv from 'dotenv';
-// Import only the Hono app instance
-import app from './api/index'; 
+// Import the NAMED export { app } which is the Hono instance
+import { app } from './api/index'; 
 
 // Load environment variables from .env file
 dotenv.config();

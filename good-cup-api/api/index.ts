@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { handle } from 'hono/vercel'; // Keep commented for node server
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import { sign } from 'hono/jwt';
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import dayjs from 'dayjs';
+import { Buffer } from 'node:buffer'; // For base64 encoding/decoding
 
 // Drizzle Imports
 import { drizzle } from 'drizzle-orm/neon-http';
@@ -34,10 +34,94 @@ const sql = neon(connectionString);
 const db = drizzle(sql, { schema: { users: usersTable }, logger: true });
 
 // Restore constants
-const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = '7d';
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// --- Web Crypto Helper Functions ---
+const PBKDF2_ITERATIONS = 100000;
+const SALT_BYTES = 16;
+const KEY_LENGTH_BYTES = 32;
+
+// Function to convert ArrayBuffer to Base64 string
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  return Buffer.from(buffer).toString('base64');
+};
+
+// Function to convert Base64 string to Uint8Array
+const base64ToUint8Array = (base64: string): Uint8Array => {
+  return new Uint8Array(Buffer.from(base64, 'base64'));
+};
+
+// Function to hash password using PBKDF2 with Web Crypto
+async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  );
+  const hashBuffer = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    passwordKey,
+    KEY_LENGTH_BYTES * 8 // length in bits
+  );
+
+  const saltBase64 = arrayBufferToBase64(salt);
+  const hashBase64 = arrayBufferToBase64(hashBuffer);
+  return `${saltBase64}$${hashBase64}`; // Store salt and hash together
+}
+
+// Function to verify password against stored hash
+async function verifyPassword(password: string, storedHashString: string): Promise<boolean> {
+  const [saltBase64, storedHashBase64] = storedHashString.split('$');
+  if (!saltBase64 || !storedHashBase64) {
+    console.error('Invalid stored hash format');
+    return false; // Or throw an error
+  }
+
+  const salt = base64ToUint8Array(saltBase64);
+  const storedHash = base64ToUint8Array(storedHashBase64);
+
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  );
+
+  const derivedHashBuffer = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    passwordKey,
+    KEY_LENGTH_BYTES * 8 // length in bits
+  );
+
+  const derivedHash = new Uint8Array(derivedHashBuffer);
+
+  // Constant-time comparison
+  if (derivedHash.length !== storedHash.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < derivedHash.length; i++) {
+    diff |= derivedHash[i] ^ storedHash[i];
+  }
+  return diff === 0;
+}
+// --- End Web Crypto Helper Functions ---
 
 // Use standard Hono app
 const app = new Hono().basePath('/api');
@@ -134,7 +218,8 @@ app.post('/auth/register', async (c) => {
       return c.json({ message: 'User with this email already exists.' }, 409);
     }
 
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    // Use the new hashPassword function
+    const passwordHash = await hashPassword(password);
 
     // Use db defined in this file's scope
     const insertedUsers = await db.insert(usersTable)
@@ -196,7 +281,8 @@ app.post('/auth/login', async (c) => {
     }
     const user = foundUsers[0];
 
-    const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+    // Use the new verifyPassword function
+    const passwordMatches = await verifyPassword(password, user.passwordHash);
 
     if (!passwordMatches) {
       return c.json({ message: 'Invalid email or password.' }, 401);
@@ -205,15 +291,11 @@ app.post('/auth/login', async (c) => {
     const tokenPayload = {
       userId: user.id,
       email: user.email,
+      exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7, // Expires: now + 7 days
     };
 
-    const token = await new Promise<string>((resolve, reject) => {
-        jwt.sign(tokenPayload, JWT_SECRET as string, { expiresIn: JWT_EXPIRES_IN }, (err: Error | null, encoded: string | undefined) => {
-            if (err) return reject(err);
-            if (encoded === undefined) return reject(new Error('JWT encoding failed')); 
-            resolve(encoded);
-        });
-    });
+    // Use Hono's sign function
+    const token = await sign(tokenPayload, JWT_SECRET);
 
     return c.json({
       token,
@@ -530,5 +612,6 @@ Note that suggestedWaterTemp is in Celsius, suggestedSteepTimeSeconds and sugges
   }
 });
 
+export { app }; // <-- Add named export for the Hono instance
 export const runtime = 'edge';
 export default handle(app); 
