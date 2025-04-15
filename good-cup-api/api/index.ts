@@ -137,6 +137,12 @@ async function verifyPassword(password: string, storedHashString: string): Promi
 // Use standard Hono app, remove basePath
 const app = new Hono();
 
+// Add a root route for testing
+app.get('/', (c) => {
+  console.log('--- Root GET handler invoked ---');
+  return c.json({ message: 'Hono root says hello!' });
+});
+
 // --- Helper Functions --- 
 const formatTime = (totalSeconds: number): string => {
   if (!totalSeconds || isNaN(totalSeconds)) return "0:00";
