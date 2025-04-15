@@ -1,8 +1,21 @@
 {
   "functions": {
-    "*.ts": {
+    "brew-suggestion.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "brew-suggestions.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "analyze-image.ts": {
       "memory": 1024,
       "maxDuration": 10
     }
-  }
+  },
+  "routes": [
+    { "src": "/api/brew-suggestion", "dest": "/brew-suggestion.ts" },
+    { "src": "/api/brew-suggestions", "dest": "/brew-suggestions.ts" },
+    { "src": "/api/analyze-image", "dest": "/analyze-image.ts" }
+  ]
 } 
