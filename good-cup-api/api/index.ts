@@ -134,8 +134,8 @@ async function verifyPassword(password: string, storedHashString: string): Promi
 }
 // --- End Web Crypto Helper Functions ---
 
-// Use standard Hono app
-const app = new Hono().basePath('/api');
+// Use standard Hono app, remove basePath
+const app = new Hono();
 
 // --- Helper Functions --- 
 const formatTime = (totalSeconds: number): string => {
