@@ -3,6 +3,8 @@ import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
+import OpenAI from 'openai';
+import dayjs from 'dayjs';
 
 // Drizzle Imports
 import { drizzle } from 'drizzle-orm/neon-http';
@@ -39,6 +41,64 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Use standard Hono app
 const app = new Hono().basePath('/api');
+
+// --- Helper Functions --- 
+const formatTime = (totalSeconds: number): string => {
+  if (!totalSeconds || isNaN(totalSeconds)) return "0:00";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+};
+
+const calculateAgeDays = (roastedTimestamp?: number, brewTimestamp?: number): number | null => {
+  if (!roastedTimestamp || !brewTimestamp) return null;
+  const roastedDate = new Date(roastedTimestamp);
+  const brewDate = new Date(brewTimestamp);
+  
+  roastedDate.setHours(0, 0, 0, 0);
+  brewDate.setHours(0, 0, 0, 0);
+
+  const differenceInTime = brewDate.getTime() - roastedDate.getTime();
+  const differenceInDays = Math.floor(differenceInTime / (1000 * 3600 * 24));
+  
+  return differenceInDays >= 0 ? differenceInDays : null;
+};
+
+// Helper function to extract JSON from potentially formatted string
+const extractJson = (content: string | null): any | null => {
+  if (!content) return null;
+  content = content.trim(); // Trim whitespace first
+
+  // Check for markdown code fence (json specifically)
+  const codeFenceMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+  if (codeFenceMatch && codeFenceMatch[1]) {
+    content = codeFenceMatch[1].trim();
+  } else {
+    // Fallback: Check for generic code fence
+    const genericCodeFenceMatch = content.match(/```\s*([\s\S]*?)\s*```/);
+    if (genericCodeFenceMatch && genericCodeFenceMatch[1]) {
+      content = genericCodeFenceMatch[1].trim();
+    }
+    // Fallback: Find first { and last }
+    else if (content.startsWith('{') && content.endsWith('}')) {
+      // Looks like raw JSON already, do nothing
+    } else {
+        const firstBrace = content.indexOf('{');
+        const lastBrace = content.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          content = content.substring(firstBrace, lastBrace + 1).trim();
+        }
+    }
+  }
+
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    console.error("Failed to parse extracted JSON content:", content, e);
+    return null; // Return null if parsing fails
+  }
+};
+// --- End Helper Functions ---
 
 // --- Simple Test Route --- 
 app.get('/hello', (c) => {
@@ -148,9 +208,10 @@ app.post('/auth/login', async (c) => {
     };
 
     const token = await new Promise<string>((resolve, reject) => {
-        jwt.sign(tokenPayload, JWT_SECRET as string, { expiresIn: JWT_EXPIRES_IN }, (err, encoded) => {
+        jwt.sign(tokenPayload, JWT_SECRET as string, { expiresIn: JWT_EXPIRES_IN }, (err: Error | null, encoded: string | undefined) => {
             if (err) return reject(err);
-            resolve(encoded as string);
+            if (encoded === undefined) return reject(new Error('JWT encoding failed')); 
+            resolve(encoded);
         });
     });
 
@@ -166,6 +227,306 @@ app.post('/auth/login', async (c) => {
   } catch (error) {
     console.error('Login Error:', error);
     return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// --- Analyze Image Route --- 
+app.post('/analyze-image', async (c) => {
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_API_KEY) {
+    return c.json({ error: 'Server configuration error: Missing OpenAI API key' }, 500);
+  }
+
+  // Authorization check (consider middleware later)
+  const authHeader = c.req.header('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const { image } = await c.req.json();
+    if (!image) {
+      return c.json({ error: 'Missing required parameter: image' }, 400);
+    }
+
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+
+    const prompt = `Analyze this coffee bean package image and extract the following information:
+1. Bean Name: The name of the coffee beans
+2. Origin Country: The country where the beans are from
+3. Processing Method: The process used (washed, natural, honey, etc.)
+4. Roast Level: The roast level (light, medium, dark, etc.)
+5. Flavor Notes: The flavor notes mentioned on the package
+
+Return ONLY a JSON object with the following structure without any text outside the JSON:
+{
+  "beanName": "Name of the coffee beans",
+  "country": "Origin country",
+  "process": "Processing method",
+  "roastLevel": "Roast level",
+  "flavorNotes": ["Note 1", "Note 2", "Note 3"]
+}
+
+If any information is not visible or cannot be determined from the image, use null for that field.`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o', 
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${image}`,
+              },
+            },
+          ],
+        },
+      ],
+      max_tokens: 500,
+    });
+
+    const messageContent = response.choices[0]?.message?.content;
+    if (!messageContent) {
+      return c.json({ error: 'No message content received from OpenAI API' }, 500);
+    }
+
+    // Use the helper function to extract and parse
+    const jsonResponse = extractJson(messageContent);
+
+    if (jsonResponse) {
+      return c.json(jsonResponse);
+    } else {
+      console.error('Failed to extract/parse OpenAI response:', messageContent);
+      return c.json({ 
+          error: 'Failed to parse AI response as JSON',
+          rawResponse: messageContent // Send raw response for debugging
+        }, 500);
+    }
+
+  } catch (error: unknown) {
+    console.error('Error processing /analyze-image:', error);
+    return c.json({ error: 'Internal server error', details: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
+
+// --- Brew Suggestions Route (based on history) ---
+// Define Brew interface (if not already defined globally)
+interface Brew {
+  beanName: string;
+  steepTime: number;
+  grindSize: string;
+  waterTemp: number;
+  useBloom: boolean;
+  bloomTime?: number;
+  brewDevice?: string;
+  grinder?: string;
+  notes?: string;
+  rating?: number;
+  roastedDate?: number;
+  timestamp: number;
+}
+
+app.post('/brew-suggestions', async (c) => {
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_API_KEY) {
+    return c.json({ error: 'Server configuration error: Missing OpenAI API key' }, 500);
+  }
+
+  // Authorization check
+  const authHeader = c.req.header('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const { currentBrew, previousBrews, selectedBeanName, currentGrinderName } = await c.req.json();
+    
+    if (!currentBrew) {
+      return c.json({ error: 'Missing required parameter: currentBrew' }, 400);
+    }
+
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+
+    const currentBrewAge = calculateAgeDays(currentBrew.roastedDate, currentBrew.timestamp);
+
+    let prompt = `As a coffee expert, I'm analyzing a brew of ${currentBrew.beanName}. Here are the details:
+
+Current Brew:
+- Steep Time: ${formatTime(currentBrew.steepTime)}
+- Grind Size: ${currentBrew.grindSize}
+- Water Temperature: ${currentBrew.waterTemp}
+${currentBrew.useBloom ? `- Bloom: Yes (${currentBrew.bloomTime || 'unspecified time'})` : '- Bloom: No'}
+${currentBrew.brewDevice ? `- Brewing Device: ${currentBrew.brewDevice}` : ''}
+${currentBrew.grinder ? `- Grinder: ${currentBrew.grinder}` : ''}
+${currentBrew.notes ? `- Notes: ${currentBrew.notes}` : ''}
+${currentBrew.rating ? `- Rating: ${currentBrew.rating}/10` : ''}
+${currentBrew.roastedDate ? `- Roasted Date: ${new Date(currentBrew.roastedDate).toLocaleDateString()}` : ''}
+${currentBrewAge !== null ? `- Age When Brewed: ${currentBrewAge} days` : ''}
+`;
+
+    if (previousBrews && previousBrews.length > 0) {
+      prompt += `\nRelevant previous brews of the same bean (sorted by rating):\n`;
+      previousBrews.forEach((brew: Brew, index: number) => {
+        const prevBrewAge = calculateAgeDays(brew.roastedDate, brew.timestamp);
+        prompt += `\nBrew #${index + 1} (Rating: ${brew.rating}/10):
+- Steep Time: ${formatTime(brew.steepTime)}
+- Grind Size: ${brew.grindSize}
+- Water Temperature: ${brew.waterTemp}
+${brew.useBloom ? `- Bloom: Yes (${brew.bloomTime || 'unspecified time'})` : '- Bloom: No'}
+${brew.notes ? `- Notes: ${brew.notes}` : ''}
+${prevBrewAge !== null ? `- Age When Brewed: ${prevBrewAge} days` : ''}
+`;
+      });
+    }
+
+    prompt += `
+Based on the current brew and any previous brews of the same bean, please provide concise suggestions to improve the brewing process. Consider these factors:
+1. Grind size adjustments
+2. Steep time modifications
+3. Water temperature changes
+4. Bloom technique
+5. Any other techniques that might enhance the flavor
+
+Please provide specific, actionable advice that would help achieve a better extraction and flavor profile.
+
+If previous brews with the same grinder (${currentGrinderName || 'used previously'}) exist and used specific click settings (e.g., "18 clicks"), base your grind size suggestion on those clicks (e.g., suggest "17 clicks" or "19 clicks"). Otherwise, provide a descriptive suggestion (e.g., "Medium-Fine").
+
+Return the response ONLY as a valid JSON object with the exact structure below. Do NOT include any explanatory text, greetings, apologies, or markdown formatting (like \`\`\`) before or after the JSON object.
+
+{
+  "suggestionText": "<Your detailed textual suggestions here>",
+  "suggestedGrindSize": "<Specific suggested grind size in clicks, e.g., '17, 25, 35', or null if no specific suggestion>",
+  "suggestedWaterTemp": "<Specific water temperature, e.g., '96°C', or null>",
+  "suggestedSteepTimeSeconds": <Steep time in total seconds, e.g., 180, or null>,
+  "suggestedUseBloom": <boolean, true if bloom is recommended, false otherwise>,
+  "suggestedBloomTimeSeconds": <Bloom time in seconds, e.g., 30, or null if bloom is not recommended or time is unspecified>
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4-turbo', // Consider model choice
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+      max_tokens: 500
+    });
+
+    const messageContent = response.choices[0]?.message?.content;
+    if (!messageContent) {
+      return c.json({ error: 'No message content received from OpenAI API' }, 500);
+    }
+
+    // Use the helper function to extract and parse
+    const jsonResponse = extractJson(messageContent);
+
+    if (jsonResponse) {
+       // Add any necessary type checks if needed here before returning
+      return c.json(jsonResponse);
+    } else {
+      console.error('Failed to extract/parse OpenAI response:', messageContent);
+      return c.json({ 
+          error: 'Failed to parse AI response as JSON',
+          rawResponse: messageContent
+        }, 500);
+    }
+
+  } catch (error: unknown) {
+    console.error('Error processing /brew-suggestions:', error);
+    return c.json({ error: 'Internal server error', details: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
+
+// --- Brew Suggestion Route (Generic based on bean) ---
+app.post('/brew-suggestion', async (c) => {
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_API_KEY) {
+    return c.json({ error: 'Server configuration error: Missing OpenAI API key' }, 500);
+  }
+
+  // Authorization check
+  const authHeader = c.req.header('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const { 
+      beanName, 
+      country, 
+      process, 
+      roastLevel, 
+      flavorNotes, 
+      brewMethod, 
+      roastedDate 
+    } = await c.req.json();
+    
+    if (!beanName || !brewMethod) {
+      return c.json({ error: 'Missing required parameters: beanName and brewMethod are required' }, 400);
+    }
+
+    // Calculate bean age (using existing helper)
+    const beanAge = roastedDate ? calculateAgeDays(roastedDate, Date.now()) : null; // Age relative to today
+
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+
+    const prompt = `Please suggest optimal brewing parameters for the following coffee:
+
+Bean Name: ${beanName}
+Origin: ${country || 'Unknown'}
+Process: ${process || 'Unknown'}
+Roast Level: ${roastLevel || 'Unknown'}
+Flavor Notes: ${flavorNotes ? flavorNotes.join(', ') : 'Unknown'}
+Bean Age (days since roast): ${beanAge !== null ? beanAge : 'Unknown'}
+Brew Method: ${brewMethod}
+
+Provide brew parameters optimized for this specific coffee's characteristics. 
+Return ONLY a JSON object with the following structure without any text outside the JSON:
+{
+  "suggestionText": "A brief explanation of why these parameters would work well with this coffee (2-3 sentences)",
+  "suggestedGrindSize": "Suggested grind size (e.g. Fine, Medium-Fine, Medium, Medium-Coarse, Coarse)",
+  "suggestedWaterTemp": 93,
+  "suggestedSteepTimeSeconds": 150,
+  "suggestedUseBloom": true,
+  "suggestedBloomTimeSeconds": 30
+}
+
+Note that suggestedWaterTemp is in Celsius, suggestedSteepTimeSeconds and suggestedBloomTimeSeconds are in seconds. suggestedUseBloom is a boolean.`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o', // Use a suitable model
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 500,
+    });
+
+    const messageContent = response.choices[0]?.message?.content;
+    if (!messageContent) {
+      return c.json({ error: 'No message content received from OpenAI API' }, 500);
+    }
+
+    // Use the helper function to extract and parse
+    const jsonResponse = extractJson(messageContent);
+
+    if (jsonResponse) {
+       // Add formatted times for convenience (optional, can be done on client)
+       if (typeof jsonResponse.suggestedSteepTimeSeconds === 'number') {
+         jsonResponse.steepTimeFormatted = formatTime(jsonResponse.suggestedSteepTimeSeconds);
+       }
+       if (typeof jsonResponse.suggestedBloomTimeSeconds === 'number') {
+         jsonResponse.bloomTimeFormatted = formatTime(jsonResponse.suggestedBloomTimeSeconds);
+       }
+      return c.json(jsonResponse);
+    } else {
+      console.error('Failed to extract/parse OpenAI response:', messageContent);
+      return c.json({ 
+          error: 'Failed to parse AI response as JSON',
+          rawResponse: messageContent
+        }, 500);
+    }
+
+  } catch (error: unknown) {
+    console.error('Error processing /brew-suggestion:', error);
+    return c.json({ error: 'Internal server error', details: error instanceof Error ? error.message : String(error) }, 500);
   }
 });
 

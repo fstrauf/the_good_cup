@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import OpenAI from 'openai';
-import { getBrewSuggestionsFromAPI, generateGenericBrewSuggestionFromAPI, analyzeImageFromAPI } from './apiService';
+// Remove OpenAI import
+// import OpenAI from 'openai';
+// Remove apiService import
+// import { getBrewSuggestionsFromAPI, generateGenericBrewSuggestionFromAPI, analyzeImageFromAPI } from './apiService';
 
 // Interfaces
 export interface Brew {
@@ -39,13 +41,15 @@ export interface Grinder {
   name: string;
 }
 
-// Storage keys
+// Add API_URL definition (using the same logic as auth.tsx)
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+
+// Keep storage keys for now if needed for settings screen
 const API_KEY_STORAGE_KEY = '@GoodCup:openaiApiKey';
 const BREW_DEVICES_STORAGE_KEY = '@GoodCup:brewDevices';
 const GRINDERS_STORAGE_KEY = '@GoodCup:grinders';
 
-// Helper function to get API key (checks env vars first, then storage)
-// This will be mostly used during the transition to the new auth system
+// Keep API key functions for now if settings screen still uses them
 const getApiKeyInternal = async (): Promise<string | null> => {
   try {
     // First check process.env for Expo public env var
@@ -87,356 +91,92 @@ export const getApiKey = async (): Promise<string | null> => {
   return await getApiKeyInternal();
 };
 
-// Helper function to format time
-const formatTime = (totalSeconds: number): string => {
-  if (!totalSeconds || isNaN(totalSeconds)) return "0:00";
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-};
-
-// Helper function to calculate age in days
-const calculateAgeDays = (roastedTimestamp?: number, brewTimestamp?: number): number | null => {
-  if (!roastedTimestamp || !brewTimestamp) return null;
-  const roastedDate = new Date(roastedTimestamp);
-  const brewDate = new Date(brewTimestamp);
-  
-  // Set both times to the start of the day for accurate day difference
-  roastedDate.setHours(0, 0, 0, 0);
-  brewDate.setHours(0, 0, 0, 0);
-
-  const differenceInTime = brewDate.getTime() - roastedDate.getTime();
-  const differenceInDays = Math.floor(differenceInTime / (1000 * 3600 * 24));
-  
-  // Return null if roasted date is after brew date (should not happen)
-  return differenceInDays >= 0 ? differenceInDays : null;
-};
-
-// Add this helper function near the top
-const extractJson = (content: string | null): any | null => {
-  if (!content) return null;
-
-  // 1. Check for markdown code fence
-  const codeFenceMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-  if (codeFenceMatch && codeFenceMatch[1]) {
-    content = codeFenceMatch[1].trim();
-  } else {
-    // 2. If no code fence, look for the first '{' and last '}'
-    const firstBrace = content.indexOf('{');
-    const lastBrace = content.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      content = content.substring(firstBrace, lastBrace + 1).trim();
-    } else {
-      // 3. If still no structure, assume it might be the raw JSON (or invalid)
-      content = content.trim();
-    }
-  }
-
-  try {
-    return JSON.parse(content);
-  } catch (e) {
-    console.error("Failed to parse extracted JSON content:", content, e);
-    return null; // Return null if parsing fails after extraction attempts
-  }
-};
-
-// Simplified API call function with stateless client initialization
-// This will be used during the transition to the new auth system
-export async function makeOpenAICall<T>(callFunction: (client: OpenAI) => Promise<T>): Promise<T> {
-  try {
-    // 1. Get the API key
-    console.log('[makeOpenAICall] Getting API key...');
-    const apiKey = await getApiKeyInternal();
-    console.log(`[makeOpenAICall] API key found: ${!!apiKey}`);
-    if (!apiKey) {
-      throw new Error('OpenAI API key not found. Please set it in the settings.');
-    }
-
-    // 2. Initialize a new client for this call
-    let client: OpenAI;
-    try {
-      console.log('[makeOpenAICall] Initializing OpenAI client instance...');
-      // --- BEGIN DEBUG LOG --- 
-      // Log parts of the key to verify it's loaded, but avoid logging the full key if possible
-      const keyExists = !!apiKey;
-      const keyPreview = keyExists ? `${apiKey.substring(0, 3)}...${apiKey.substring(apiKey.length - 4)}` : 'null';
-      console.log(`[makeOpenAICall] Attempting to initialize client with API Key (Exists: ${keyExists}, Preview: ${keyPreview})`);
-      // --- END DEBUG LOG ---
-      client = new OpenAI({
-        apiKey: apiKey, // Ensure apiKey is the variable holding the retrieved key
-        dangerouslyAllowBrowser: true,
-        timeout: 15000, // Increased timeout slightly to 15s
-      });
-      console.log('[makeOpenAICall] OpenAI client instance initialized successfully.');
-    } catch (initError) {
-      console.error('Error initializing OpenAI client instance:', initError);
-      throw new Error('Failed to initialize OpenAI client.');
-    }
-
-    // 3. Execute the provided call function
-    console.log('[makeOpenAICall] Executing provided call function...');
-    const result = await callFunction(client);
-    console.log('[makeOpenAICall] Call function executed successfully.');
-    return result;
-
-  } catch (error) {
-    // Log the error and re-throw it for the caller to handle
-    console.error('[makeOpenAICall] Error during execution:', error);
-    // No client reset needed as the client is stateless per call
-    throw error; // Re-throw the original error (or a more specific one if needed)
-  }
-}
-
-// Get brew suggestions from OpenAI API
+// Refactor getBrewSuggestions to call backend
 export const getBrewSuggestions = async (
   currentBrew: Brew,
   previousBrews: Brew[],
-  selectedBeanName?: string,
-  currentGrinderName?: string,
-  authToken?: string | null  // Optional auth token parameter for transitioning to the new system
+  selectedBeanName: string | undefined, // Ensure type consistency
+  currentGrinderName: string | undefined, // Ensure type consistency
+  authToken: string | null // Auth token is now mandatory for backend calls
 ): Promise<BrewSuggestionResponse> => {
+  console.log('Calling backend /api/brew-suggestions...');
+  if (!authToken) {
+    throw new Error('Authentication token is required to get brew suggestions.');
+  }
+
   try {
-    console.log('Starting getBrewSuggestions...');
-    
-    // Try to use the authenticated API service first if an auth token is provided
-    if (authToken) {
-      console.log('Authenticated token found, using secure API backend...');
-      return await getBrewSuggestionsFromAPI(
-        authToken, 
+    const response = await fetch(`${API_URL}/api/brew-suggestions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ 
         currentBrew, 
         previousBrews, 
-        selectedBeanName, 
-        currentGrinderName
-      );
-    }
-    
-    // Otherwise, fall back to the original implementation
-    console.log('No auth token provided, using legacy direct OpenAI API call...');
-    
-    // Get brew devices and grinders
-    const storedDevices = await AsyncStorage.getItem(BREW_DEVICES_STORAGE_KEY);
-    const storedGrinders = await AsyncStorage.getItem(GRINDERS_STORAGE_KEY);
-    
-    const brewDevices: BrewDevice[] = storedDevices ? JSON.parse(storedDevices) : [];
-    const grinders: Grinder[] = storedGrinders ? JSON.parse(storedGrinders) : [];
-    
-    // Find current brew device and grinder names
-    const brewDeviceName = currentBrew.brewDevice 
-      ? brewDevices.find(device => device.id === currentBrew.brewDevice)?.name || 'Unknown'
-      : undefined;
-      
-    const grinderName = currentBrew.grinder
-      ? grinders.find(grinder => grinder.id === currentBrew.grinder)?.name || 'Unknown'
-      : undefined;
-    
-    // Determine possible devices and grinders from notes if not specified
-    let possibleDevices: string[] = [];
-    let possibleGrinders: string[] = [];
-    
-    if (!brewDeviceName && currentBrew.notes) {
-      possibleDevices = brewDevices
-        .filter(device => currentBrew.notes.toLowerCase().includes(device.name.toLowerCase()))
-        .map(device => device.name);
-    }
-    
-    if (!grinderName && currentBrew.notes) {
-      possibleGrinders = grinders
-        .filter(grinder => currentBrew.notes.toLowerCase().includes(grinder.name.toLowerCase()))
-        .map(grinder => grinder.name);
-    }
-
-    // Filter and sort previous brews
-    const relevantBrews = previousBrews
-      .filter(brew => {
-        if (selectedBeanName) {
-          return brew.beanName.toLowerCase() === selectedBeanName.toLowerCase();
-        }
-        return true;
-      })
-      .sort((a, b) => b.rating - a.rating) // Sort by rating, highest first
-      .slice(0, 5); // Take top 5 rated
-
-    // Calculate age for the current brew
-    const currentBrewAge = calculateAgeDays(currentBrew.roastedDate, currentBrew.timestamp);
-
-    // Construct prompt
-    let prompt = `As a coffee expert, I'm analyzing a brew of ${currentBrew.beanName}. Here are the details:
-
-Current Brew:
-- Steep Time: ${formatTime(currentBrew.steepTime)}
-- Grind Size: ${currentBrew.grindSize}
-- Water Temperature: ${currentBrew.waterTemp}
-${currentBrew.useBloom ? `- Bloom: Yes (${currentBrew.bloomTime || 'unspecified time'})` : '- Bloom: No'}
-${brewDeviceName ? `- Brewing Device: ${brewDeviceName}` : ''}
-${grinderName ? `- Grinder: ${grinderName}` : ''}
-${currentBrew.notes ? `- Notes: ${currentBrew.notes}` : ''}
-${currentBrew.rating ? `- Rating: ${currentBrew.rating}/10` : ''}
-${currentBrew.roastedDate ? `- Roasted Date: ${new Date(currentBrew.roastedDate).toLocaleDateString()}` : ''}
-${currentBrewAge !== null ? `- Age When Brewed: ${currentBrewAge} days` : ''}
-
-${possibleDevices.length > 0 ? `Possibly using these brew devices: ${possibleDevices.join(', ')}` : ''}
-${possibleGrinders.length > 0 ? `Possibly using these grinders: ${possibleGrinders.join(', ')}` : ''}
-`;
-
-    // Add information about previous brews if available
-    if (relevantBrews.length > 0) {
-      prompt += `\nRelevant previous brews of the same bean (sorted by rating):\n`;
-      
-      relevantBrews.forEach((brew, index) => {
-        // Calculate age for previous brews as well
-        const prevBrewAge = calculateAgeDays(brew.roastedDate, brew.timestamp);
-        prompt += `\nBrew #${index + 1} (Rating: ${brew.rating}/10):
-- Steep Time: ${formatTime(brew.steepTime)}
-- Grind Size: ${brew.grindSize}
-- Water Temperature: ${brew.waterTemp}
-${brew.useBloom ? `- Bloom: Yes (${brew.bloomTime || 'unspecified time'})` : '- Bloom: No'}
-${brew.notes ? `- Notes: ${brew.notes}` : ''}
-${prevBrewAge !== null ? `- Age When Brewed: ${prevBrewAge} days` : ''}
-`;
-      });
-    }
-
-    prompt += `
-Based on the current brew and any previous brews of the same bean, please provide concise suggestions to improve the brewing process. Consider these factors:
-1. Grind size adjustments
-2. Steep time modifications
-3. Water temperature changes
-4. Bloom technique
-5. Any other techniques that might enhance the flavor
-
-Please provide specific, actionable advice that would help achieve a better extraction and flavor profile.
-
-If previous brews with the same grinder (${currentGrinderName || 'used previously'}) exist and used specific click settings (e.g., "18 clicks"), base your grind size suggestion on those clicks (e.g., suggest "17 clicks" or "19 clicks"). Otherwise, provide a descriptive suggestion (e.g., "Medium-Fine").
-
-Return the response ONLY as a valid JSON object with the exact structure below. Do NOT include any explanatory text, greetings, apologies, or markdown formatting (like \`\`\`) before or after the JSON object.
-
-{
-  "suggestionText": "<Your detailed textual suggestions here>",
-  "suggestedGrindSize": "<Specific suggested grind size in clicks, e.g., '17, 25, 35', or null if no specific suggestion>",
-  "suggestedWaterTemp": "<Specific water temperature, e.g., '96°C', or null>",
-  "suggestedSteepTimeSeconds": <Steep time in total seconds, e.g., 180, or null>,
-  "suggestedUseBloom": <boolean, true if bloom is recommended, false otherwise>,
-  "suggestedBloomTimeSeconds": <Bloom time in seconds, e.g., 30, or null if bloom is not recommended or time is unspecified>
-}`;
-
-    console.log('Attempting OpenAI API call for brew suggestions...');
-
-    // Use the simplified API call function
-    const response = await makeOpenAICall(async (client) => {
-      return await client.chat.completions.create({
-        model: 'gpt-4.1-2025-04-14',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 500
-      });
+        selectedBeanName, // Pass these along if needed by backend prompt
+        currentGrinderName // Pass these along if needed by backend prompt
+      }),
     });
 
-    console.log('Successfully received response from OpenAI');
-    const messageContent = response.choices[0]?.message?.content;
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Backend /brew-suggestions error:', data);
+      throw new Error(data.error || 'Failed to get brew suggestions from server.');
+    }
     
-    if (!messageContent) {
-      console.error('No message content received from OpenAI API.');
-      throw new Error('Failed to get valid response from OpenAI API.');
-    }
+    // Backend should return data matching BrewSuggestionResponse structure
+    console.log('Received brew suggestions from backend:', data);
+    return data as BrewSuggestionResponse; 
 
-    console.log('Raw OpenAI response content:', messageContent);
-
-    // Replace the try-catch block for parsing
-    const parsedResponse = extractJson(messageContent); // Use the helper
-
-    if (parsedResponse) {
-      console.log('Parsed suggestion response:', parsedResponse);
-      // Basic type checking (can be more robust)
-      if (typeof parsedResponse.suggestionText === 'string') {
-        return parsedResponse as BrewSuggestionResponse;
-      } else {
-         console.error('Parsed JSON is missing required fields or has wrong types.');
-         throw new Error('Received invalid data structure from OpenAI.');
-      }
-    } else {
-      // Fallback logic is less reliable, throw error directly
-      console.error('Failed to extract valid JSON from OpenAI response.');
-      throw new Error('Failed to parse or extract suggestion from OpenAI response.');
-    }
   } catch (error) {
-    console.error('Error fetching brew suggestions:', error);
-    // Re-throw the error for the calling function to handle UI updates
-    throw error;
+    console.error('Error fetching /brew-suggestions:', error);
+    throw error; // Re-throw for the calling component
   }
 };
 
-// Analyze image with vision model
+// Refactor analyzeImage to call backend
 export const analyzeImage = async (
   base64Image: string,
-  authToken?: string | null  // Optional auth token parameter for transitioning to the new system
-): Promise<any> => {
-  try {
-    console.log('Starting image analysis...');
-    
-    // Try to use the authenticated API service first if an auth token is provided
-    if (authToken) {
-      console.log('Authenticated token found, using secure API backend for image analysis...');
-      return await analyzeImageFromAPI(authToken, base64Image);
-    }
-    
-    console.log('No auth token provided, using legacy direct OpenAI API call for image analysis...');
-    console.log('Attempting OpenAI API call for image analysis...');
+  authToken: string | null // Auth token is now mandatory
+): Promise<any> => { // Return type might need adjustment based on backend response
+  console.log('Calling backend /api/analyze-image...');
+  if (!authToken) {
+    throw new Error('Authentication token is required to analyze image.');
+  }
+  // Remove prefix if present (backend expects raw base64)
+  const rawBase64 = base64Image.startsWith('data:image/jpeg;base64,') 
+                      ? base64Image.substring('data:image/jpeg;base64,'.length)
+                      : base64Image;
 
-    // Use the simplified API call function
-    const response = await makeOpenAICall(async (client) => {
-      return await client.chat.completions.create({
-        model: 'gpt-4.1-2025-04-14',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: 'This is a photo of a coffee bean package. Please extract and provide the following information in JSON format:\n' +
-                      '1. Bean name\n' +
-                      '2. Roast level (Use only one of these specific values: Light, Medium-Light, Medium, Medium-Dark, Dark. Infer this from the description/label if possible.)\n' +
-                      '3. Flavor notes (as an array of strings)\n' +
-                      '4. Description\n\n' +
-                      'If you cannot determine a field, use "Unknown" or an empty array for flavor notes. Return ONLY valid JSON with these fields.'
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: base64Image
-                }
-              }
-            ]
-          }
-        ],
-        max_tokens: 1000
-      });
+  try {
+    const response = await fetch(`${API_URL}/api/analyze-image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ image: rawBase64 }), // Send raw base64
     });
-    
-    console.log('Successfully received image analysis response from OpenAI');
-    
-    const messageContent = response.choices[0]?.message?.content;
-    
-    if (messageContent) {
-      // Extract JSON from the response (handling potential text before or after JSON)
-      const jsonMatch = messageContent.match(/\{[\s\S]*\}/);
-      const jsonString = jsonMatch ? jsonMatch[0] : messageContent; // Attempt to find JSON block
-      try {
-        return JSON.parse(jsonString); // Parse the extracted JSON
-      } catch (parseError) {
-         console.error('Failed to parse JSON from OpenAI response:', jsonString, parseError);
-         throw new Error('Failed to parse image analysis data.');
-      }
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Backend /analyze-image error:', data);
+      throw new Error(data.error || 'Failed to analyze image via server.');
     }
-    
-    throw new Error('No content returned from OpenAI');
+
+    console.log('Received image analysis from backend:', data);
+    return data; // Return the JSON data directly
+
   } catch (error) {
-    console.error('Error analyzing image:', error);
-    // Let the caller handle the error
-    throw error;
+    console.error('Error fetching /analyze-image:', error);
+    throw error; // Re-throw for the calling component
   }
 };
 
-// Function to generate generic brew suggestion based on bean characteristics
+// Refactor generateGenericBrewSuggestion to call backend
 export const generateGenericBrewSuggestion = async (
   bean: { 
     name: string;
@@ -444,92 +184,49 @@ export const generateGenericBrewSuggestion = async (
     flavorNotes: string[];
     description: string;
     roastedDate?: number;
+    // Add any other fields the backend /brew-suggestion endpoint expects
+    country?: string; // Example from backend prompt
+    process?: string; // Example from backend prompt
+    brewMethod: string; // Mandatory based on backend
   },
-  authToken?: string | null  // Optional auth token parameter for transitioning to the new system
+  authToken: string | null // Auth token is now mandatory
 ): Promise<BrewSuggestionResponse> => {
+  console.log('Calling backend /api/brew-suggestion...');
+  if (!authToken) {
+    throw new Error('Authentication token is required to get generic brew suggestion.');
+  }
+
   try {
-    console.log('Starting generic brew suggestion generation...');
-    
-    // Try to use the authenticated API service first if an auth token is provided
-    if (authToken) {
-      console.log('Authenticated token found, using secure API backend for generic suggestion...');
-      return await generateGenericBrewSuggestionFromAPI(authToken, bean);
-    }
-    
-    console.log('No auth token provided, using legacy direct OpenAI API call for generic suggestion...');
-    console.log('Generating generic brew suggestion based on bean characteristics...');
-    
-    const prompt = `I have a coffee bean called "${bean.name}" with no brewing history yet. 
-Roast Level: ${bean.roastLevel}
-Flavor Notes: ${bean.flavorNotes.join(', ') || 'Not specified'}
-Description: ${bean.description || 'Not available'}
-Roasted Date: ${bean.roastedDate ? new Date(bean.roastedDate).toLocaleDateString() : 'Not available'}
-
-Please provide a comprehensive brewing guide for this bean, including:
-1. The optimal brewing parameters specifically for this bean type and roast level
-2. How this roast level affects the extraction and what to consider
-3. What brewing method would best highlight the flavor notes
-4. Specific recommendations for:
-   - Grind size
-   - Water temperature
-   - Steep time
-   - Whether to use a bloom phase and for how long
-5. A concise approach to adjust parameters if the brew is under or over-extracted
-
-Respond with specific, actionable brewing advice to get the best flavor from this bean.
-
-Return the response ONLY as a valid JSON object with the exact structure below. Do NOT include any explanatory text, greetings, apologies, or markdown formatting (like \`\`\`) before or after the JSON object.
-
-{
-  "suggestionText": "<Your detailed textual brewing guide here>",
-  "suggestedGrindSize": "<Specific suggested grind size, e.g., 'Medium-Fine', or null>",
-  "suggestedWaterTemp": "<Specific water temperature, e.g., '96°C', or null>",
-  "suggestedSteepTimeSeconds": <Steep time in total seconds, e.g., 180, or null>,
-  "suggestedUseBloom": <boolean, true if bloom is recommended, false otherwise>,
-  "suggestedBloomTimeSeconds": <Bloom time in seconds, e.g., 30, or null>
-}`;
-
-    console.log('Attempting OpenAI API call for generic brew suggestions...');
-
-    // Use the simplified API call function
-    const response = await makeOpenAICall(async (client) => {
-      return await client.chat.completions.create({
-        model: 'gpt-4.1-2025-04-14',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 500,
-      });
+    const response = await fetch(`${API_URL}/api/brew-suggestion`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      // Ensure the body matches what the backend expects
+      body: JSON.stringify({
+        beanName: bean.name,
+        country: bean.country, 
+        process: bean.process,
+        roastLevel: bean.roastLevel,
+        flavorNotes: bean.flavorNotes,
+        brewMethod: bean.brewMethod,
+        roastedDate: bean.roastedDate
+      }), 
     });
 
-    const messageContent = response.choices[0]?.message?.content;
+    const data = await response.json();
 
-    if (!messageContent) {
-      console.error('No message content received from OpenAI API for generic suggestion.');
-      throw new Error('Failed to get valid response from OpenAI API.');
+    if (!response.ok) {
+      console.error('Backend /brew-suggestion error:', data);
+      throw new Error(data.error || 'Failed to get generic brew suggestion from server.');
     }
 
-     console.log('Raw OpenAI response content (generic):', messageContent);
-
-    // Replace the try-catch block for parsing
-    const parsedResponse = extractJson(messageContent); // Use the helper
-
-    if (parsedResponse) {
-       console.log('Parsed generic suggestion response:', parsedResponse);
-      // Basic type checking (can be more robust)
-       if (typeof parsedResponse.suggestionText === 'string') {
-         return parsedResponse as BrewSuggestionResponse;
-       } else {
-          console.error('Parsed generic JSON is missing required fields or has wrong types.');
-          throw new Error('Received invalid data structure from OpenAI (generic).');
-       }
-    } else {
-       console.error('Failed to extract valid JSON from OpenAI response (generic).');
-       throw new Error('Failed to parse or extract suggestion from OpenAI response (generic).');
-    }
+    console.log('Received generic brew suggestion from backend:', data);
+    return data as BrewSuggestionResponse;
 
   } catch (error) {
-    console.error('Error fetching generic brew suggestions:', error);
-    // Re-throw the error
-    throw error;
+    console.error('Error fetching /brew-suggestion:', error);
+    throw error; // Re-throw for the calling component
   }
 }; 
