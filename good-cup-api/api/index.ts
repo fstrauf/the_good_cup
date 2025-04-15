@@ -25,6 +25,15 @@ export default async function handler(req: Request) {
     );
   }
 
+  // Add a test POST route
+  if (req.method === 'POST' && pathname === '/test') {
+    console.log('--- Basic POST /test handler invoked ---');
+    return new Response(
+      JSON.stringify({ success: true, message: 'Basic POST /test route hit' }),
+      { headers: { 'content-type': 'application/json' } }
+    );
+  }
+
   // Return 404 for any other path
   return new Response('Not Found', { status: 404 });
 } 
