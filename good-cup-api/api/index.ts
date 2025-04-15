@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-// import { handle } from 'hono/vercel'; // Keep commented for node server
+import { handle } from 'hono/vercel'; // Keep commented for node server
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
@@ -530,9 +530,5 @@ Note that suggestedWaterTemp is in Celsius, suggestedSteepTimeSeconds and sugges
   }
 });
 
-// Export the Hono app instance itself for node-server
-export default app;
-
-// Comment out the Vercel adapter export
-// import { handle } from 'hono/vercel';
-// export default handle(app); 
+export const runtime = 'edge';
+export default handle(app); 

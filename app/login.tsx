@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, TextInput, TouchableOpacity } from 'react-native';
+import { View, ActivityIndicator, TextInput, TouchableOpacity, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
 import { Text } from '../components/ui/text';
 import { Button } from '../components/ui/button';
 import { router, useNavigation } from 'expo-router';
@@ -77,84 +77,94 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-soft-off-white">
-      <View className="flex-1 justify-center items-center px-8">
-        <View className="w-40 h-40 mb-8 items-center justify-center">
-          <Coffee size={100} color={themeColors['cool-gray-green']} />
-        </View>
-        
-        <Text className="text-3xl font-bold text-center text-charcoal mb-2">
-          {isSignUpMode ? 'Create Account' : 'The Good Cup'}
-        </Text>
-        
-        <Text className="text-base text-center text-cool-gray-green mb-12 px-6">
-          {isSignUpMode ? 'Join us to track your coffee journey.' : 'Track your coffee journey, improve your brews, and discover the perfect cup.'}
-        </Text>
-        
-        <View className="w-full max-w-sm space-y-4">
-          {isSignUpMode && (
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"} 
+        className="flex-1"
+        keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
+      >
+        <ScrollView 
+          contentContainerClassName="flex-grow justify-center items-center"
+          className="flex-1 px-8"
+          keyboardShouldPersistTaps="handled"
+        >
+          <View className="w-40 h-40 mb-8 items-center justify-center">
+            <Coffee size={100} color={themeColors['cool-gray-green']} />
+          </View>
+          
+          <Text className="text-3xl font-bold text-center text-charcoal mb-2">
+            {isSignUpMode ? 'Create Account' : 'The Good Cup'}
+          </Text>
+          
+          <Text className="text-base text-center text-cool-gray-green mb-12 px-6">
+            {isSignUpMode ? 'Join us to track your coffee journey.' : 'Track your coffee journey, improve your brews, and discover the perfect cup.'}
+          </Text>
+          
+          <View className="w-full max-w-sm space-y-4 mb-4">
+            {isSignUpMode && (
+              <TextInput
+                className="bg-white border border-cool-gray-light rounded-lg px-4 py-3 text-base text-charcoal placeholder:text-cool-gray-green focus:border-muted-sage-green focus:ring-1 focus:ring-muted-sage-green"
+                placeholder="Name"
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+                autoComplete="name"
+              />
+            )}
+
             <TextInput
               className="bg-white border border-cool-gray-light rounded-lg px-4 py-3 text-base text-charcoal placeholder:text-cool-gray-green focus:border-muted-sage-green focus:ring-1 focus:ring-muted-sage-green"
-              placeholder="Name"
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-              autoComplete="name"
+              placeholder="Email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
             />
-          )}
 
-          <TextInput
-            className="bg-white border border-cool-gray-light rounded-lg px-4 py-3 text-base text-charcoal placeholder:text-cool-gray-green focus:border-muted-sage-green focus:ring-1 focus:ring-muted-sage-green"
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-          />
+            <TextInput
+              className="bg-white border border-cool-gray-light rounded-lg px-4 py-3 text-base text-charcoal placeholder:text-cool-gray-green focus:border-muted-sage-green focus:ring-1 focus:ring-muted-sage-green"
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoComplete={isSignUpMode ? 'new-password' : 'password'}
+            />
 
-          <TextInput
-            className="bg-white border border-cool-gray-light rounded-lg px-4 py-3 text-base text-charcoal placeholder:text-cool-gray-green focus:border-muted-sage-green focus:ring-1 focus:ring-muted-sage-green"
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            autoComplete={isSignUpMode ? 'new-password' : 'password'}
-          />
-
-          {error && (
-             <Text className="text-red-500 text-sm text-center">{error}</Text>
-          )}
-          {successMessage && (
-             <Text className="text-green-600 text-sm text-center">{successMessage}</Text>
-          )}
-
-          <Button
-            onPress={handleAuthAction}
-            disabled={isLoading}
-            className="bg-muted-sage-green py-3 rounded-lg"
-            size="lg"
-          >
-            {isLoading ? (
-              <ActivityIndicator size="small" color={themeColors['charcoal']} />
-            ) : (
-              <Text className="text-base font-semibold text-charcoal">
-                {isSignUpMode ? 'Sign Up' : 'Sign In'}
-              </Text>
+            {error && (
+               <Text className="text-red-500 text-sm text-center">{error}</Text>
             )}
-          </Button>
+            {successMessage && (
+               <Text className="text-green-600 text-sm text-center">{successMessage}</Text>
+            )}
 
-          <TouchableOpacity onPress={() => {
-            setIsSignUpMode(!isSignUpMode);
-            setError(null);
-            setSuccessMessage(null);
-          }} className="mt-4">
-            <Text className="text-center text-cool-gray-green underline">
-              {isSignUpMode ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+            <Button
+              onPress={handleAuthAction}
+              disabled={isLoading}
+              className="bg-muted-sage-green py-3 rounded-lg"
+              size="lg"
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color={themeColors['charcoal']} />
+              ) : (
+                <Text className="text-base font-semibold text-charcoal">
+                  {isSignUpMode ? 'Sign Up' : 'Sign In'}
+                </Text>
+              )}
+            </Button>
+
+            <TouchableOpacity onPress={() => {
+              setIsSignUpMode(!isSignUpMode);
+              setError(null);
+              setSuccessMessage(null);
+            }} className="pt-4 pb-2">
+              <Text className="text-center text-cool-gray-green underline">
+                {isSignUpMode ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 } 
