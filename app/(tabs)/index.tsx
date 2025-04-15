@@ -31,6 +31,8 @@ const themeColors = (fullConfig.theme?.extend?.colors ?? fullConfig.theme?.color
 // Storage keys
 const BEANS_STORAGE_KEY = "@GoodCup:beans";
 const BREWS_STORAGE_KEY = "@GoodCup:brews";
+const BREW_DEVICES_STORAGE_KEY = '@GoodCup:brewDevices';
+const DEFAULT_BREW_DEVICE_KEY = '@GoodCup:defaultBrewDevice';
 
 // Bean interface
 interface Bean {
@@ -58,6 +60,14 @@ interface Brew {
   waterTemp: string;
   brewDevice?: string;
   grinder?: string;
+}
+
+// Add BrewDevice interface if not already defined
+interface BrewDevice {
+  id: string;
+  name: string;
+  type?: string; // Optional fields as needed
+  notes?: string;
 }
 
 // Interface for navigation parameters
@@ -264,15 +274,32 @@ export default function BeansScreen() {
           `[getOptimalBrewSuggestions] No history or history suggestion failed. Attempting generic suggestion.`
         );
         try {
+          // --- Determine Brew Method --- 
+          let brewMethod = 'Pour Over'; // Default method
+          const defaultDeviceId = await AsyncStorage.getItem(DEFAULT_BREW_DEVICE_KEY);
+          if (defaultDeviceId) {
+            const storedDevices = await AsyncStorage.getItem(BREW_DEVICES_STORAGE_KEY);
+            const devices: BrewDevice[] = storedDevices ? JSON.parse(storedDevices) : [];
+            const defaultDevice = devices.find(d => d.id === defaultDeviceId);
+            if (defaultDevice) {
+              brewMethod = defaultDevice.name; 
+              console.log(`[getOptimalBrewSuggestions] Using default brew method: ${brewMethod}`);
+            }
+          } else {
+             console.log(`[getOptimalBrewSuggestions] No default brew method set, using: ${brewMethod}`);
+          }
+          // --- End Determine Brew Method ---
+
           const roastLevelLabel = bean.roastLevel;
-          const beanWithLabel = {
+          const beanWithMethod = {
             ...bean,
             roastLevel: roastLevelLabel,
             roastedDate: bean.roastedDate || undefined,
+            brewMethod: brewMethod, // Add the determined brew method
           };
-          console.log(`[getOptimalBrewSuggestions] Calling generateGenericBrewSuggestion API...`);
+          console.log(`[getOptimalBrewSuggestions] Calling generateGenericBrewSuggestion API with method: ${brewMethod}...`);
           suggestionResponse = await generateGenericBrewSuggestion(
-            beanWithLabel,
+            beanWithMethod,
             token
           );
           console.log(

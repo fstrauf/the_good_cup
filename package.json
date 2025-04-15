@@ -30,7 +30,7 @@
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.13",
     "eas-cli": "^16.3.1",
-    "expo": "^52.0.25",
+    "expo": "^52.0.46",
     "expo-auth-session": "^6.0.3",
     "expo-blur": "^14.0.3",
     "expo-dev-client": "~5.0.20",
@@ -40,7 +40,7 @@
     "expo-navigation-bar": "~4.0.7",
     "expo-random": "^14.0.1",
     "expo-router": "~4.0.16",
-    "expo-splash-screen": "~0.29.20",
+    "expo-splash-screen": "~0.29.24",
     "expo-status-bar": "~2.0.1",
     "expo-symbols": "^0.2.2",
     "expo-system-ui": "~4.0.7",
@@ -68,5 +68,32 @@
     "typescript": "^5.3.3",
     "vercel": "^41.6.0"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "jsEngine": "hermes",
+    "experiments": {
+      "tsconfigPaths": true
+    },
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "@rn-primitives/avatar",
+          "@rn-primitives/portal",
+          "@rn-primitives/progress",
+          "@rn-primitives/select",
+          "@rn-primitives/slider",
+          "@rn-primitives/slot",
+          "@rn-primitives/tooltip",
+          "@rn-primitives/types",
+          "@vercel/node",
+          "class-variance-authority",
+          "eas-cli",
+          "openai",
+          "tailwindcss",
+          "tailwindcss-animate",
+          "lucide-react-native"
+        ]
+      }
+    }
+  }
 }

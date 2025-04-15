@@ -1,17 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Register the redirect URI handler for the authentication flow
-WebBrowser.maybeCompleteAuthSession();
 
 // Define the shape of our auth context
 type AuthContextType = {
   user: User | null;
   isLoading: boolean;
-  signIn: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  signUp: (details: { email: string; password: string; name?: string }) => Promise<void>;
   token: string | null;
 };
 
@@ -26,26 +22,18 @@ type User = {
 const AUTH_TOKEN_KEY = '@GoodCup:authToken';
 const USER_DATA_KEY = '@GoodCup:userData';
 
+// Placeholder for your backend API URL
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001'; // Use environment variable
+
 // Create the context with a default value
 const AuthContext = createContext<AuthContextType>({
   user: null,
   isLoading: true,
-  signIn: async () => {},
+  signIn: async (email, password) => {},
   signOut: async () => {},
+  signUp: async (details) => {},
   token: null,
 });
-
-// Config for your authentication provider (You'll need to set this up)
-// Replace these values with your actual auth provider details
-const authConfig = {
-  clientId: 'YOUR_CLIENT_ID', // Replace with your OAuth client ID
-  redirectUri: AuthSession.makeRedirectUri({
-    scheme: 'the-good-cup' // Your app's custom URL scheme
-  }),
-  // If using Google, the discovery document URL is:
-  // discoveryUrl: 'https://accounts.google.com/.well-known/openid-configuration'
-  // For other providers, you may need different URLs or configurations
-};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -73,61 +61,91 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loadSavedAuth();
   }, []);
 
-  // Sign in function using your chosen OAuth provider
-  const signIn = async () => {
+  // Updated Sign in function for email/password
+  const signIn = async (email: string, password: string) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-
-      // For demonstration - actual implementation will depend on your chosen provider
-      // If using Google, Facebook, or another OAuth provider
-      const authRequest = new AuthSession.AuthRequest({
-        clientId: authConfig.clientId,
-        redirectUri: authConfig.redirectUri,
-        responseType: 'token', // or 'code' if using authorization code flow
-        scopes: ['openid', 'profile', 'email']
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
       });
 
-      const result = await authRequest.promptAsync({
-        // The authentication endpoint 
-        // For Google: 'https://accounts.google.com/o/oauth2/v2/auth'
-        // Replace with your provider's endpoint
-        authorizationEndpoint: 'YOUR_AUTH_ENDPOINT'
-      });
+      const data = await response.json();
 
-      if (result.type === 'success') {
-        // Extract the token from the response
-        const newToken = result.params.access_token;
-        setToken(newToken);
-
-        // Fetch user profile with the token
-        // This will vary based on your provider
-        const userInfoResponse = await fetch('YOUR_USERINFO_ENDPOINT', {
-          headers: { Authorization: `Bearer ${newToken}` }
-        });
-        
-        const userData = await userInfoResponse.json();
-        const newUser = {
-          id: userData.sub || userData.id,
-          email: userData.email,
-          name: userData.name
-        };
-        
-        setUser(newUser);
-
-        // Save to AsyncStorage
-        await AsyncStorage.setItem(AUTH_TOKEN_KEY, newToken);
-        await AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(newUser));
+      if (!response.ok) {
+        throw new Error(data.message || 'Authentication failed');
       }
-    } catch (error) {
-      console.error('Authentication error:', error);
+
+      // Assuming the backend returns { token: '...', user: { id: '...', ... } }
+      const { token: newToken, user: newUser } = data;
+
+      if (!newToken || !newUser) {
+        throw new Error('Invalid response from server');
+      }
+
+      setToken(newToken);
+      setUser(newUser);
+
+      // Save to AsyncStorage
+      await AsyncStorage.setItem(AUTH_TOKEN_KEY, newToken);
+      await AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(newUser));
+
+    } catch (error: any) {
+      console.error('Sign in error:', error);
+      // Re-throw the error so the UI can catch it
+      throw error; 
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Add the Sign Up function
+  const signUp = async (details: { email: string; password: string; name?: string }) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(details), // Send email, password, name
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Specific check for conflict error
+        if (response.status === 409) {
+          throw new Error(data.message || 'Email already exists.');
+        }
+        throw new Error(data.message || 'Registration failed');
+      }
+
+      // Registration successful, but don't log in automatically.
+      // The user object might be returned in `data.user` if needed.
+      console.log('Registration successful:', data);
+      // Optionally automatically sign in after successful registration:
+      // await signIn(details.email, details.password);
+
+    } catch (error: any) {
+      console.error('Sign up error:', error);
+      // Re-throw the error so the UI can catch it
+      throw error; 
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Sign out function (remains largely the same, could add backend call)
   const signOut = async () => {
     try {
       setIsLoading(true);
+      // Optional: Call a backend /api/auth/logout endpoint here
+      // await fetch(`${API_URL}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+
       // Clear local state
       setUser(null);
       setToken(null);
@@ -143,7 +161,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, token, isLoading, signIn, signOut, signUp }}>
       {children}
     </AuthContext.Provider>
   );

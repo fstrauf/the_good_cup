@@ -1,13 +1,8 @@
 {
-  "functions": {
-    "api/**/*.ts": {
-      "memory": 1024,
-      "maxDuration": 10
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
     }
-  },
-  "routes": [
-    { "src": "/brew-suggestion", "dest": "/api/brew-suggestion.ts" },
-    { "src": "/brew-suggestions", "dest": "/api/brew-suggestions.ts" },
-    { "src": "/analyze-image", "dest": "/api/analyze-image.ts" }
   ]
 } 
