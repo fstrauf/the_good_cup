@@ -4,6 +4,7 @@ import { sign } from 'hono/jwt';
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import dayjs from 'dayjs';
+import { logger } from 'hono/logger';
 
 // Drizzle Imports
 import { drizzle } from 'drizzle-orm/neon-http';
@@ -136,6 +137,9 @@ async function verifyPassword(password: string, storedHashString: string): Promi
 
 // Use standard Hono app, remove basePath
 const app = new Hono();
+
+// Apply logger middleware
+app.use('*', logger());
 
 // Add a root route for testing
 app.get('/', (c) => {
