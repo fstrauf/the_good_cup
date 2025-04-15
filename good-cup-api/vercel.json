@@ -14,8 +14,8 @@
     }
   },
   "routes": [
-    { "src": "/api/brew-suggestion", "dest": "/brew-suggestion.ts" },
-    { "src": "/api/brew-suggestions", "dest": "/brew-suggestions.ts" },
-    { "src": "/api/analyze-image", "dest": "/analyze-image.ts" }
+    { "src": "/brew-suggestion", "dest": "/brew-suggestion.ts" },
+    { "src": "/brew-suggestions", "dest": "/brew-suggestions.ts" },
+    { "src": "/analyze-image", "dest": "/analyze-image.ts" }
   ]
 } 
