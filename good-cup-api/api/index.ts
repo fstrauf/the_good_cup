@@ -4,10 +4,14 @@ export const config = {
 
 export default async function handler(req: Request) {
   const url = new URL(req.url);
+  // Log the raw pathname from the URL object
+  console.log(`--- Raw url.pathname: ${url.pathname} ---`);
+
   const pathname = url.pathname.startsWith('/api')
                    ? url.pathname.substring(4) // Remove /api prefix
                    : url.pathname;
 
+  // Log the calculated pathname we're using for routing
   console.log(`--- Basic Edge Handler Invoked: ${req.method} ${pathname} ---`);
 
   if (req.method === 'GET' && pathname === '/') {
