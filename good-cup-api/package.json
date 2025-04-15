@@ -15,7 +15,6 @@
     "openai": "^4.20.0"
   },
   "devDependencies": {
-    "@hono/node-server": "^1.14.1",
     "@types/node": "^22.14.1",
     "drizzle-kit": "^0.30.6",
     "ts-node": "^10.9.2",

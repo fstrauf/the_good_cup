@@ -4,7 +4,6 @@ import { sign } from 'hono/jwt';
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import dayjs from 'dayjs';
-import { Buffer } from 'node:buffer'; // For base64 encoding/decoding
 
 // Drizzle Imports
 import { drizzle } from 'drizzle-orm/neon-http';
@@ -43,14 +42,26 @@ const PBKDF2_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const KEY_LENGTH_BYTES = 32;
 
-// Function to convert ArrayBuffer to Base64 string
+// Function to convert ArrayBuffer to Base64 string (Edge compatible)
 const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
-  return Buffer.from(buffer).toString('base64');
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 };
 
-// Function to convert Base64 string to Uint8Array
+// Function to convert Base64 string to Uint8Array (Edge compatible)
 const base64ToUint8Array = (base64: string): Uint8Array => {
-  return new Uint8Array(Buffer.from(base64, 'base64'));
+  const binary_string = atob(base64);
+  const len = binary_string.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary_string.charCodeAt(i);
+  }
+  return bytes;
 };
 
 // Function to hash password using PBKDF2 with Web Crypto
