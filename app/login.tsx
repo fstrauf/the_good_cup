@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { View, Image, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Image, StyleSheet, ActivityIndicator, TextInput, TouchableOpacity } from 'react-native';
 import { Text } from '../components/ui/text';
 import { Button } from '../components/ui/button';
 import { router, useNavigation } from 'expo-router';
@@ -16,33 +16,57 @@ const themeColors = (fullConfig.theme?.extend?.colors ?? fullConfig.theme?.color
 // --- End Tailwind ---
 
 export default function LoginScreen() {
-  const { signIn, user, isLoading } = useAuth();
+  const { signIn, signUp, user, isLoading: authIsLoading } = useAuth();
   const navigation = useNavigation();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSignUpMode, setIsSignUpMode] = useState(false);
 
-  // When user is signed in, navigate to the home screen
   useEffect(() => {
     if (user) {
       router.replace('/');
     }
   }, [user]);
 
-  // Update header
   useEffect(() => {
     navigation.setOptions({ 
       headerShown: false 
     });
   }, [navigation]);
 
-  const handleSignIn = async () => {
+  const handleAuthAction = async () => {
+    if (!email || !password || (isSignUpMode && !name)) {
+      setError('Please fill in all required fields.');
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    setSuccessMessage(null);
+
     try {
-      await signIn();
-      // Navigation happens in the useEffect when user changes
-    } catch (error) {
-      console.error('Failed to sign in:', error);
+      if (isSignUpMode) {
+        await signUp({ email, password, name });
+        setSuccessMessage('Registration successful! Please sign in.');
+        setIsSignUpMode(false);
+        setEmail('');
+        setPassword('');
+        setName('');
+      } else {
+        await signIn(email, password);
+      }
+    } catch (err: any) {
+      console.error(`Failed to ${isSignUpMode ? 'sign up' : 'sign in'}:`, err);
+      setError(err.message || `Failed to ${isSignUpMode ? 'sign up' : 'sign in'}. Please try again.`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  if (isLoading) {
+  if (authIsLoading) {
     return (
       <View className="flex-1 justify-center items-center bg-soft-off-white">
         <ActivityIndicator size="large" color={themeColors['cool-gray-green']} />
@@ -59,23 +83,76 @@ export default function LoginScreen() {
         </View>
         
         <Text className="text-3xl font-bold text-center text-charcoal mb-2">
-          The Good Cup
+          {isSignUpMode ? 'Create Account' : 'The Good Cup'}
         </Text>
         
         <Text className="text-base text-center text-cool-gray-green mb-12 px-6">
-          Track your coffee journey, improve your brews, and discover the perfect cup.
+          {isSignUpMode ? 'Join us to track your coffee journey.' : 'Track your coffee journey, improve your brews, and discover the perfect cup.'}
         </Text>
         
-        <View className="w-full max-w-sm">
+        <View className="w-full max-w-sm space-y-4">
+          {isSignUpMode && (
+            <TextInput
+              className="bg-white border border-cool-gray-light rounded-lg px-4 py-3 text-base text-charcoal placeholder:text-cool-gray-green focus:border-muted-sage-green focus:ring-1 focus:ring-muted-sage-green"
+              placeholder="Name"
+              value={name}
+              onChangeText={setName}
+              autoCapitalize="words"
+              autoComplete="name"
+            />
+          )}
+
+          <TextInput
+            className="bg-white border border-cool-gray-light rounded-lg px-4 py-3 text-base text-charcoal placeholder:text-cool-gray-green focus:border-muted-sage-green focus:ring-1 focus:ring-muted-sage-green"
+            placeholder="Email"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+          />
+
+          <TextInput
+            className="bg-white border border-cool-gray-light rounded-lg px-4 py-3 text-base text-charcoal placeholder:text-cool-gray-green focus:border-muted-sage-green focus:ring-1 focus:ring-muted-sage-green"
+            placeholder="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete={isSignUpMode ? 'new-password' : 'password'}
+          />
+
+          {error && (
+             <Text className="text-red-500 text-sm text-center">{error}</Text>
+          )}
+          {successMessage && (
+             <Text className="text-green-600 text-sm text-center">{successMessage}</Text>
+          )}
+
           <Button
-            onPress={handleSignIn}
+            onPress={handleAuthAction}
+            disabled={isLoading}
             className="bg-muted-sage-green py-3 rounded-lg"
             size="lg"
           >
-            <Text className="text-base font-semibold text-charcoal">
-              Sign In
-            </Text>
+            {isLoading ? (
+              <ActivityIndicator size="small" color={themeColors['charcoal']} />
+            ) : (
+              <Text className="text-base font-semibold text-charcoal">
+                {isSignUpMode ? 'Sign Up' : 'Sign In'}
+              </Text>
+            )}
           </Button>
+
+          <TouchableOpacity onPress={() => {
+            setIsSignUpMode(!isSignUpMode);
+            setError(null);
+            setSuccessMessage(null);
+          }} className="mt-4">
+            <Text className="text-center text-cool-gray-green underline">
+              {isSignUpMode ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     </SafeAreaView>

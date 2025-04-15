@@ -5,8 +5,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Button } from '../../components/ui/button';
 import { Text } from '../../components/ui/text';
-import { Star, Trash2, Plus } from 'lucide-react-native';
+import { Star, Trash2, Plus, LogOut } from 'lucide-react-native';
 import { cn } from '../../lib/utils';
+import { useAuth } from '../../lib/auth';
 
 // --- Tailwind --- 
 import resolveConfig from 'tailwindcss/resolveConfig';
@@ -38,6 +39,8 @@ interface Grinder {
 }
 
 export default function SettingsScreen() {
+  const { signOut } = useAuth();
+  
   // OpenAI state
   // const [apiKey, setApiKey] = useState('');
   // const [apiKeyMasked, setApiKeyMasked] = useState(true);
@@ -322,6 +325,33 @@ export default function SettingsScreen() {
     </View>
   );
 
+  // Handle Sign Out
+  const handleSignOut = async () => {
+    Alert.alert(
+      "Confirm Sign Out",
+      "Are you sure you want to sign out?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Sign Out",
+          onPress: async () => {
+            try {
+              await signOut();
+              // Navigation back to login happens automatically due to AuthProvider state change
+            } catch (error) {
+              console.error('Error signing out:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
+          },
+          style: "destructive",
+        }
+      ]
+    );
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-soft-off-white" edges={['top', 'left', 'right']}>
       <View className="flex-1 bg-soft-off-white">
@@ -493,6 +523,20 @@ export default function SettingsScreen() {
               }
             />
           </View>
+          
+          {/* Divider */}
+          <View className="h-px bg-pale-gray mb-6" />
+
+          {/* Sign Out Button */}
+          <Button 
+            variant="destructive"
+            onPress={handleSignOut} 
+            className="flex-row items-center justify-center bg-red-100 border border-red-300"
+          >
+            <LogOut size={18} color={themeColors['red-600']} className="mr-2" />
+            <Text className="text-red-600 font-semibold">Sign Out</Text>
+          </Button>
+
         </ScrollView>
       </View>
     </SafeAreaView>
