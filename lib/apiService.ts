@@ -1,7 +1,7 @@
 import { BrewSuggestionResponse } from './openai';
 
 // Change this to your actual backend API URL when you create it
-const API_BASE_URL = 'https://api.yourgoodcupapp.com';
+const API_BASE_URL = 'https://the-good-cup-api.vercel.app';
 
 /**
  * Makes an authenticated API call to your backend service
