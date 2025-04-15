@@ -1,25 +1,30 @@
-import { Hono } from 'hono';
-import { handle } from 'hono/vercel';
+export const config = {
+  runtime: 'edge',
+};
 
-export const runtime = 'edge';
+export default async function handler(req: Request) {
+  const url = new URL(req.url);
+  const pathname = url.pathname.startsWith('/api')
+                   ? url.pathname.substring(4) // Remove /api prefix
+                   : url.pathname;
 
-const app = new Hono();
+  console.log(`--- Basic Edge Handler Invoked: ${req.method} ${pathname} ---`);
 
-// Minimal GET route
-app.get('/', (c) => {
-  console.log('--- Minimal GET / handler invoked ---');
-  return c.json({ success: true, message: 'Minimal GET / route hit' });
-});
+  if (req.method === 'GET' && pathname === '/') {
+    return new Response(
+      JSON.stringify({ success: true, message: 'Basic GET / route hit' }),
+      { headers: { 'content-type': 'application/json' } }
+    );
+  }
 
-// Minimal POST route
-app.post('/auth/login', (c) => {
-  console.log('--- Minimal POST /auth/login handler invoked ---');
-  // In a real scenario, you'd await c.req.json() here
-  return c.json({ success: true, message: 'Minimal POST /auth/login route hit' });
-});
+  if (req.method === 'POST' && pathname === '/auth/login') {
+    // Optionally read body if needed for a real test: const body = await req.text();
+    return new Response(
+      JSON.stringify({ success: true, message: 'Basic POST /auth/login route hit' }),
+      { headers: { 'content-type': 'application/json' } }
+    );
+  }
 
-// Keep the named export for potential local testing needs (though server.ts is currently broken)
-export { app };
-
-// Default export for Vercel
-export default handle(app); 
+  // Return 404 for any other path
+  return new Response('Not Found', { status: 404 });
+} 
