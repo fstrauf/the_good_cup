@@ -90,7 +90,7 @@ Return ONLY a JSON object with the following structure without any text outside 
 If any information is not visible or cannot be determined from the image, use null for that field.`;
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o', 
+      model: 'gpt-4.1-2025-04-14', 
       messages: [
         {
           role: 'user',

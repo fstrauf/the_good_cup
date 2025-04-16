@@ -59,118 +59,6 @@ function extractJson(content) {
   }
 }
 
-// Generate historical brew suggestion based on previous brews
-async function generateHistoricalSuggestion(openai, currentBrew, previousBrews, selectedBeanName, currentGrinderName) {
-  const currentBrewAge = calculateAgeDays(currentBrew.roastedDate, currentBrew.timestamp);
-
-  let prompt = `As a coffee expert, I'm analyzing a brew of ${currentBrew.beanName}. Here are the details:
-
-Current Brew:
-- Steep Time: ${formatTime(currentBrew.steepTime)}
-- Grind Size: ${currentBrew.grindSize}
-- Water Temperature: ${currentBrew.waterTemp}
-${currentBrew.useBloom ? `- Bloom: Yes (${currentBrew.bloomTime || 'unspecified time'})` : '- Bloom: No'}
-${currentBrew.brewDevice ? `- Brewing Device: ${currentBrew.brewDevice}` : ''}
-${currentBrew.grinder ? `- Grinder: ${currentBrew.grinder}` : ''}
-${currentBrew.notes ? `- Notes: ${currentBrew.notes}` : ''}
-${currentBrew.rating ? `- Rating: ${currentBrew.rating}/10` : ''}
-${currentBrew.roastedDate ? `- Roasted Date: ${new Date(currentBrew.roastedDate).toLocaleDateString()}` : ''}
-${currentBrewAge !== null ? `- Age When Brewed: ${currentBrewAge} days` : ''}
-`;
-
-  if (previousBrews && previousBrews.length > 0) {
-    prompt += `\nRelevant previous brews of the same bean (sorted by rating):\n`;
-    previousBrews.forEach((brew, index) => {
-      const prevBrewAge = calculateAgeDays(brew.roastedDate, brew.timestamp);
-      prompt += `\nBrew #${index + 1} (Rating: ${brew.rating}/10):
-- Steep Time: ${formatTime(brew.steepTime)}
-- Grind Size: ${brew.grindSize}
-- Water Temperature: ${brew.waterTemp}
-${brew.useBloom ? `- Bloom: Yes (${brew.bloomTime || 'unspecified time'})` : '- Bloom: No'}
-${brew.notes ? `- Notes: ${brew.notes}` : ''}
-${prevBrewAge !== null ? `- Age When Brewed: ${prevBrewAge} days` : ''}
-`;
-    });
-  }
-
-  prompt += `
-Based on the current brew and any previous brews of the same bean, please provide concise suggestions to improve the brewing process. Consider these factors:
-1. Grind size adjustments
-2. Steep time modifications
-3. Water temperature changes
-4. Bloom technique
-5. Any other techniques that might enhance the flavor
-
-Please provide specific, actionable advice that would help achieve a better extraction and flavor profile.
-
-If previous brews with the same grinder (${currentGrinderName || 'used previously'}) exist and used specific click settings (e.g., "18 clicks"), base your grind size suggestion on those clicks (e.g., suggest "17 clicks" or "19 clicks"). Otherwise, provide a descriptive suggestion (e.g., "Medium-Fine").
-
-Return the response ONLY as a valid JSON object with the exact structure below. Do NOT include any explanatory text, greetings, apologies, or markdown formatting (like \`\`\`) before or after the JSON object.
-
-{
-  "suggestionText": "<Your detailed textual suggestions here>",
-  "suggestedGrindSize": "<Specific suggested grind size in clicks, e.g., '17, 25, 35', or null if no specific suggestion>",
-  "suggestedWaterTemp": "<Specific water temperature, e.g., '96°C', or null>",
-  "suggestedSteepTimeSeconds": <Steep time in total seconds, e.g., 180, or null>,
-  "suggestedUseBloom": <boolean, true if bloom is recommended, false otherwise>,
-  "suggestedBloomTimeSeconds": <Bloom time in seconds, e.g., 30, or null if bloom is not recommended or time is unspecified>
-}`;
-
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4-turbo',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.7,
-    max_tokens: 500
-  });
-
-  return response.choices[0]?.message?.content;
-}
-
-// Generate generic brew suggestion based on bean characteristics
-async function generateGenericSuggestion(openai, bean) {
-  // Prepare data for prompt
-  const beanName = bean.beanName || bean.name;
-  const brewMethod = bean.brewMethod;
-  const country = bean.country || 'Unknown';
-  const process = bean.process || 'Unknown';
-  const roastLevel = bean.roastLevel || 'Unknown';
-  const flavorNotes = Array.isArray(bean.flavorNotes) ? bean.flavorNotes.join(', ') : 'Unknown';
-  
-  // Calculate bean age if roasted date is provided
-  const beanAge = bean.roastedDate ? calculateAgeDays(bean.roastedDate, Date.now()) : null;
-
-  const prompt = `Please suggest optimal brewing parameters for the following coffee:
-
-Bean Name: ${beanName}
-Origin: ${country}
-Process: ${process}
-Roast Level: ${roastLevel}
-Flavor Notes: ${flavorNotes}
-Bean Age (days since roast): ${beanAge !== null ? beanAge : 'Unknown'}
-Brew Method: ${brewMethod}
-
-Provide brew parameters optimized for this specific coffee's characteristics. 
-Return ONLY a JSON object with the following structure without any text outside the JSON:
-{
-  "suggestionText": "A brief explanation of why these parameters would work well with this coffee (2-3 sentences)",
-  "suggestedGrindSize": "Suggested grind size in clicks of the grinder (e.g. 10, 15, 20, 25, 30)",
-  "suggestedWaterTemp": "Suggested water temperature in Celsius (e.g. 93, 95, 97, 100)",
-  "suggestedSteepTimeSeconds": "Suggested steep time in seconds (e.g. 150, 180, 210, 240)",
-  "suggestedUseBloom": true,
-  "suggestedBloomTimeSeconds": 30
-}
-
-Note that suggestedWaterTemp is in Celsius, suggestedSteepTimeSeconds and suggestedBloomTimeSeconds are in seconds. suggestedUseBloom is a boolean.`;
-
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [{ role: 'user', content: prompt }],
-    max_tokens: 500,
-  });
-
-  return response.choices[0]?.message?.content;
-}
-
 // Export the handler function
 module.exports = async (req, res) => {
   // Handle OPTIONS request for CORS
@@ -200,41 +88,124 @@ module.exports = async (req, res) => {
 
   try {
     const requestBody = req.body || {};
-    const { currentBrew, previousBrews, selectedBeanName, currentGrinderName, beanName, brewMethod } = requestBody;
+    const { currentBrew, previousBrews, selectedBeanName, currentGrinderName, beanName, brewMethod, roastLevel, flavorNotes, roastedDate, country, process } = requestBody;
     
     // Initialize OpenAI client
     const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-    let messageContent;
+    let prompt = "";
 
-    // Determine which type of suggestion to generate (historical or generic)
+    // Determine which type of suggestion to generate based on inputs
     if (currentBrew) {
-      // Generate historical suggestion based on brew history
-      console.log('Generating historical suggestion based on brew history');
-      messageContent = await generateHistoricalSuggestion(
-        openai, 
-        currentBrew, 
-        previousBrews || [], 
-        selectedBeanName, 
-        currentGrinderName
-      );
+      // --- Build Historical Suggestion Prompt ---
+      console.log('Building historical suggestion prompt');
+      const currentBeanName = currentBrew.beanName || selectedBeanName || 'this coffee';
+      const currentBrewAge = calculateAgeDays(currentBrew.roastedDate, currentBrew.timestamp);
+
+      prompt = `As a coffee expert, I'm analyzing a brew of ${currentBeanName}. Here are the details:
+
+Current Brew:
+- Steep Time: ${formatTime(currentBrew.steepTime)}
+- Grind Size: ${currentBrew.grindSize}
+- Water Temperature: ${currentBrew.waterTemp}
+${currentBrew.useBloom ? `- Bloom: Yes (${currentBrew.bloomTime || 'unspecified time'})` : '- Bloom: No'}
+${currentBrew.brewDevice ? `- Brewing Device: ${currentBrew.brewDevice}` : ''}
+${currentBrew.grinder ? `- Grinder: ${currentBrew.grinder}` : ''} ${currentGrinderName ? `(${currentGrinderName})` : '' }
+${currentBrew.notes ? `- Notes: ${currentBrew.notes}` : ''}
+${currentBrew.rating ? `- Rating: ${currentBrew.rating}/10` : ''}
+${currentBrew.roastedDate ? `- Roasted Date: ${new Date(currentBrew.roastedDate).toLocaleDateString()}` : ''}
+${currentBrewAge !== null ? `- Age When Brewed: ${currentBrewAge} days` : ''}
+`;
+
+      if (previousBrews && previousBrews.length > 0) {
+        prompt += `\nRelevant previous brews of the same bean (sorted by rating):
+`;
+        previousBrews.forEach((brew, index) => {
+          const prevBrewAge = calculateAgeDays(brew.roastedDate, brew.timestamp);
+          prompt += `\nBrew #${index + 1} (Rating: ${brew.rating}/10):
+- Steep Time: ${formatTime(brew.steepTime)}
+- Grind Size: ${brew.grindSize}
+- Water Temperature: ${brew.waterTemp}
+${brew.useBloom ? `- Bloom: Yes (${brew.bloomTime || 'unspecified time'})` : '- Bloom: No'}
+${brew.notes ? `- Notes: ${brew.notes}` : ''}
+${prevBrewAge !== null ? `- Age When Brewed: ${prevBrewAge} days` : ''}
+`;
+        });
+      }
+
+      prompt += `
+Based on the current brew and any previous brews of the same bean, please provide concise suggestions to improve the brewing process. Consider these factors:
+1. Grind size adjustments
+2. Steep time modifications
+3. Water temperature changes
+4. Bloom technique
+5. Any other techniques that might enhance the flavor
+
+Please provide specific, actionable advice that would help achieve a better extraction and flavor profile.
+
+If previous brews with the same grinder (${currentGrinderName || 'used previously'}) exist and used specific click settings (e.g., "18, 22, 24"), base your grind size suggestion on those clicks (e.g., suggest "17, 21, 23 clicks"). 
+`;
+
     } else if (brewMethod) {
-      // Generate generic suggestion based on bean characteristics
-      console.log('Generating generic suggestion based on bean characteristics');
-      messageContent = await generateGenericSuggestion(
-        openai,
-        requestBody
-      );
+      // --- Build Generic Suggestion Prompt ---
+      console.log('Building generic suggestion prompt');
+      const effectiveBeanName = beanName || selectedBeanName || 'this coffee'; // Use provided name or fallback
+      const effectiveRoastLevel = roastLevel || 'Unknown';
+      const effectiveFlavorNotes = Array.isArray(flavorNotes) ? flavorNotes.join(', ') : 'Unknown';
+      const effectiveCountry = country || 'Unknown';
+      const effectiveProcess = process || 'Unknown';
+      const beanAge = roastedDate ? calculateAgeDays(roastedDate, Date.now()) : null;
+
+      prompt = `Please suggest optimal starting brewing parameters for the following coffee:
+
+Bean Name: ${effectiveBeanName}
+Origin: ${effectiveCountry}
+Process: ${effectiveProcess}
+Roast Level: ${effectiveRoastLevel}
+Flavor Notes: ${effectiveFlavorNotes}
+Bean Age (days since roast): ${beanAge !== null ? beanAge : 'Unknown'}
+Brew Method: ${brewMethod}
+${currentGrinderName ? `Grinder: ${currentGrinderName}
+` : ''}
+Provide brew parameters optimized for this specific coffee's characteristics as a starting point.
+`;
+
     } else {
       return res.status(400).json({ 
-        error: 'Missing required parameters. Either provide currentBrew for historical suggestions or brewMethod for generic suggestions.' 
+        error: 'Missing required parameters. Provide either currentBrew details (for history-based) or bean details and brewMethod (for generic).' 
       });
     }
+
+    // --- Add common JSON output instructions to the prompt ---
+    prompt += `
+Return the response ONLY as a valid JSON object with the exact structure below. Do NOT include any explanatory text, greetings, apologies, or markdown formatting (like \`\`\`) before or after the JSON object.
+
+{
+  "suggestionText": "<Your detailed textual suggestions here (or explanation for generic)>",
+  "suggestedGrindSize": "<Specific suggested grind size, in clicks ('17,20,25,...'), or null if no specific suggestion>",
+  "suggestedWaterTemp": "<Specific water temperature, in degrees Celsius ('96°C'), or null>",
+  "suggestedSteepTimeSeconds": <Steep time in total seconds, e.g., 180, or null>,
+  "suggestedUseBloom": <boolean, true if bloom is recommended, false otherwise>,
+  "suggestedBloomTimeSeconds": <Bloom time in seconds, e.g., 30, or null if bloom is not recommended or time is unspecified>
+}`; 
+
+    // --- Call OpenAI API --- 
+    console.log('Sending prompt to OpenAI...');
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4.1-2025-04-14', // Using gpt-4o for all suggestions
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7, // Keep slight creativity for suggestions
+      max_tokens: 500,
+      // response_format: { type: "json_object" }, // Consider enabling if model reliably supports it
+    });
+
+    const messageContent = response.choices[0]?.message?.content;
 
     if (!messageContent) {
       return res.status(500).json({ error: 'No message content received from OpenAI API' });
     }
 
-    // Parse JSON from OpenAI response
+    // --- Parse and Format Response --- 
+    console.log('Received response from OpenAI. Parsing...');
     const jsonResponse = extractJson(messageContent);
 
     if (jsonResponse) {
@@ -255,6 +226,7 @@ module.exports = async (req, res) => {
         jsonResponse.bloomTimeFormatted = formatTime(seconds);
       }
       
+      console.log('Successfully parsed response:', jsonResponse);
       return res.status(200).json(jsonResponse);
     } else {
       console.error('Failed to extract/parse OpenAI response:', messageContent);

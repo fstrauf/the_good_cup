@@ -98,12 +98,12 @@ export async function getBrewSuggestions(
   currentBrew: Brew,
   previousBrews: Brew[],
   selectedBeanName: string,
-  currentGrinderName?: string
+  currentGrinderName: string | undefined,
+  authToken: string | null
 ): Promise<BrewSuggestionResponse | null> {
   try {
-    const token = await getApiKey();
-    if (!token) {
-      console.error('No token available for getBrewSuggestions');
+    if (!authToken) {
+      console.error('No authentication token provided for getBrewSuggestions');
       return null;
     }
 
@@ -113,7 +113,7 @@ export async function getBrewSuggestions(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${authToken}`
       },
       body: JSON.stringify({
         currentBrew,
@@ -229,11 +229,12 @@ export async function generateGenericBrewSuggestion(bean: {
   country?: string;
   process?: string;
   brewMethod: string;
-}): Promise<BrewSuggestionResponse | null> {
+},
+  authToken: string | null
+): Promise<BrewSuggestionResponse | null> {
   try {
-    const token = await getApiKey();
-    if (!token) {
-      console.error('No token available for generateGenericBrewSuggestion');
+    if (!authToken) {
+      console.error('No authentication token provided for generateGenericBrewSuggestion');
       return null;
     }
 
@@ -243,7 +244,7 @@ export async function generateGenericBrewSuggestion(bean: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${authToken}`
       },
       body: JSON.stringify({
         beanName: bean.name,

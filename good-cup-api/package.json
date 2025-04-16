@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "type": "commonjs",
   "scripts": {
-    "start": "vercel dev",
-    "deploy": "vercel deploy --prod",
-    "dev": "ts-node -r dotenv/config ./server.ts"
+    "start": "vercel dev"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.1",
