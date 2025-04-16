@@ -17,6 +17,7 @@
     { "source": "/analyze-image", "destination": "/api/analyze-image" },
     { "source": "/brew-suggestions", "destination": "/api/brew-suggestions" },
     { "source": "/brew-suggestion", "destination": "/api/brew-suggestion" },
+    { "source": "/generic-brew-suggestion", "destination": "/api/generic-brew-suggestion" },
     { "source": "/(.*)", "destination": "/api/$1" }
   ],
   "headers": [

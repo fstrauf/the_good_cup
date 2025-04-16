@@ -12,25 +12,27 @@ import {
   Platform,
   Text as RNText,
   TextInput,
+  LogBox,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router"; // Added useLocalSearchParams
+import { useFocusEffect, useRouter, useLocalSearchParams, useNavigation, Stack } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { analyzeImage, Brew as OpenAIBrew } from "../lib/openai"; // Corrected path
-import { Button } from "../components/ui/button"; // Corrected path
-import { Text } from "../components/ui/text"; // Corrected path
-import { Camera, Image as LucideImage, X, ChevronLeft } from "lucide-react-native"; // Added ChevronLeft
-import { cn } from "../lib/utils"; // Corrected path
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"; // Corrected path
+import { analyzeImage, Brew as OpenAIBrew } from "../lib/openai";
+import { Button } from "../components/ui/button";
+import { Text } from "../components/ui/text";
+import { Camera, Image as LucideImage, X, ChevronLeft } from "lucide-react-native";
+import { cn } from "../lib/utils";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import DateTimePicker from 'react-native-ui-datepicker';
 import { useDefaultClassNames } from 'react-native-ui-datepicker';
 import dayjs from 'dayjs';
 import { useAuth } from "../lib/auth";
+import { nanoid } from 'nanoid';
 
 // --- Tailwind --- 
 import resolveConfig from 'tailwindcss/resolveConfig';
-import tailwindConfig from '../tailwind.config.js'; // Corrected path
+import tailwindConfig from '../tailwind.config.js';
 
 const fullConfig = resolveConfig(tailwindConfig);
 const themeColors = (fullConfig.theme?.extend?.colors ?? fullConfig.theme?.colors ?? {}) as Record<string, string>; 
@@ -51,28 +53,52 @@ interface Bean {
   roastedDate?: number;
 }
 
+// Create an empty bean with default values
+const createEmptyBean = (): Bean => ({
+  id: Math.random().toString(),
+  name: '',
+  roastLevel: '',
+  roastedDate: undefined,
+  description: '',
+  photo: undefined,
+  flavorNotes: [],
+  timestamp: Date.now(),
+});
 
 export default function AddEditBeanScreen() {
+  // Hide the default header which is causing duplication
+  return (
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <BeanEditor />
+    </>
+  );
+}
+
+function BeanEditor() {
   const router = useRouter();
   const params = useLocalSearchParams<{ beanId?: string }>();
   const beanId = params.beanId; // Get beanId from route params
   const isEditing = !!beanId;
   const { token } = useAuth(); // Get auth token for API calls
+  const navigation = useNavigation();
 
   const [beans, setBeans] = useState<Bean[]>([]); // Need original beans list to update
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  // editingBean state is replaced by checking if beanId exists
-  const [newBean, setNewBean] = useState<Partial<Bean>>({
-    name: "",
-    roastLevel: "",
-    flavorNotes: [],
-    description: "",
-    photo: undefined,
-    roastedDate: undefined,
-  });
+  const [newBean, setNewBean] = useState<Bean>(createEmptyBean());
   const [isDatePickerOpen, setDatePickerOpen] = useState(false);
   const defaultClassNames = useDefaultClassNames();
+  const [analysisResults, setAnalysisResults] = useState<any | null>(null);
+  const [errorText, setErrorText] = useState<string | null>(null);
+
+  // Set appropriate navigation title
+  useEffect(() => {
+    navigation.setOptions({
+      title: isEditing ? 'Edit Bean' : 'Add New Bean',
+      headerBackTitle: 'Back',
+    });
+  }, [navigation, isEditing]);
 
   // Fetch all beans on load to easily find the one to edit or to update the list
   const loadAllBeans = useCallback(async () => {
@@ -85,14 +111,7 @@ export default function AddEditBeanScreen() {
       if (isEditing && beanId) {
         const beanToEdit = beansArray.find(b => b.id === beanId);
         if (beanToEdit) {
-          setNewBean({
-            name: beanToEdit.name,
-            roastLevel: beanToEdit.roastLevel,
-            flavorNotes: beanToEdit.flavorNotes,
-            description: beanToEdit.description,
-            photo: beanToEdit.photo,
-            roastedDate: beanToEdit.roastedDate,
-          });
+          setNewBean(beanToEdit);
         } else {
           Alert.alert("Error", "Bean not found. Returning to list.");
           router.back();
@@ -116,7 +135,6 @@ export default function AddEditBeanScreen() {
       return () => {}; 
     }, [loadAllBeans]) // Dependency remains the same
   );
-
 
   // Save the entire list of beans (used by add/update)
   const saveBeans = async (updatedBeans: Bean[]) => {
@@ -285,6 +303,29 @@ export default function AddEditBeanScreen() {
     }
   };
 
+  // Analyze the bean image using OpenAI's API
+  const analyzeBean = async (base64Image: string) => {
+    setAnalyzing(true);
+    
+    try {
+      await analyzePhoto(base64Image);
+    } catch (error) {
+      console.error("Error analyzing image:", error);
+      setErrorText("Failed to analyze image");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  // Clear error message after 5 seconds
+  useEffect(() => {
+    if (errorText) {
+      const timer = setTimeout(() => {
+        setErrorText(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorText]);
 
   // Form JSX
   return (
