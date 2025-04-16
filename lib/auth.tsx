@@ -22,8 +22,17 @@ type User = {
 const AUTH_TOKEN_KEY = '@GoodCup:authToken';
 const USER_DATA_KEY = '@GoodCup:userData';
 
-// Placeholder for your backend API URL
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001'; // Use environment variable
+// API URL configuration - Hardcode a fallback base URL as well
+// Default to Vercel deployment URL if available, otherwise use localhost
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://good-cup-api.vercel.app';
+console.log('API URL configured as:', API_URL);
+
+// Helper to ensure no double slashes in URL
+const buildApiUrl = (endpoint: string) => {
+  const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${baseUrl}${path}`;
+};
 
 // Create the context with a default value
 const AuthContext = createContext<AuthContextType>({
@@ -44,12 +53,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const loadSavedAuth = async () => {
       try {
+        console.log('Attempting to load auth state from AsyncStorage');
         const savedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
         const savedUserData = await AsyncStorage.getItem(USER_DATA_KEY);
+        
+        console.log('Token retrieved from storage:', savedToken ? 'Yes (exists)' : 'No');
+        console.log('User data retrieved from storage:', savedUserData ? 'Yes (exists)' : 'No');
         
         if (savedToken && savedUserData) {
           setToken(savedToken);
           setUser(JSON.parse(savedUserData));
+          console.log('Auth state restored successfully');
+        } else {
+          console.log('No saved auth state found');
         }
       } catch (error) {
         console.error('Failed to load authentication state:', error);
@@ -61,40 +77,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loadSavedAuth();
   }, []);
 
-  // Updated Sign in function for email/password
+  // Enhanced sign in function with better error handling and logging
   const signIn = async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/auth/login`, {
+      const loginUrl = buildApiUrl('auth/login');
+      console.log(`Attempting to sign in at: ${loginUrl}`);
+      
+      // Add a timeout to the fetch to prevent hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const response = await fetch(loginUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ email, password }),
+        signal: controller.signal
       });
-
+      
+      clearTimeout(timeoutId);
+      
+      console.log('Response status:', response.status);
       const data = await response.json();
+      console.log('Response data received:', data ? 'Yes' : 'No');
 
       if (!response.ok) {
-        throw new Error(data.message || 'Authentication failed');
+        throw new Error(data.message || `Authentication failed with status ${response.status}`);
       }
 
       // Assuming the backend returns { token: '...', user: { id: '...', ... } }
       const { token: newToken, user: newUser } = data;
 
       if (!newToken || !newUser) {
-        throw new Error('Invalid response from server');
+        console.error('Invalid response format:', data);
+        throw new Error('Invalid response from server: missing token or user data');
       }
 
+      console.log('Sign in successful, saving data to state and storage');
       setToken(newToken);
       setUser(newUser);
 
       // Save to AsyncStorage
       await AsyncStorage.setItem(AUTH_TOKEN_KEY, newToken);
       await AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(newUser));
+      console.log('Auth data saved to AsyncStorage');
 
     } catch (error: any) {
-      console.error('Sign in error:', error);
+      console.error('Sign in error details:', error);
+      // If it's an abort error, provide a clearer message
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out. Server might be down or unreachable.');
+      }
       // Re-throw the error so the UI can catch it
       throw error; 
     } finally {
@@ -102,36 +137,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Add the Sign Up function
+  // Real registration implementation using the database
   const signUp = async (details: { email: string; password: string; name?: string }) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/auth/register`, {
+      const registerUrl = buildApiUrl('auth/register');
+      console.log(`Attempting to register at: ${registerUrl}`);
+      
+      // Add a timeout to the fetch
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      const response = await fetch(registerUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(details), // Send email, password, name
+        body: JSON.stringify(details),
+        signal: controller.signal
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Specific check for conflict error
-        if (response.status === 409) {
-          throw new Error(data.message || 'Email already exists.');
-        }
-        throw new Error(data.message || 'Registration failed');
+      
+      clearTimeout(timeoutId);
+      
+      console.log('Registration response status:', response.status);
+      
+      // Read response
+      let data;
+      try {
+        data = await response.json();
+        console.log('Registration response data:', data);
+      } catch (error) {
+        console.error('Failed to parse response:', error);
+        throw new Error('Invalid response from server');
       }
 
-      // Registration successful, but don't log in automatically.
-      // The user object might be returned in `data.user` if needed.
-      console.log('Registration successful:', data);
-      // Optionally automatically sign in after successful registration:
-      // await signIn(details.email, details.password);
+      if (!response.ok) {
+        throw new Error(data.message || `Registration failed with status ${response.status}`);
+      }
 
+      console.log('Registration successful, user can now sign in');
+      
     } catch (error: any) {
-      console.error('Sign up error:', error);
+      console.error('Sign up error details:', error);
+      
+      // If it's an abort error, provide a clearer message
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out. Server might be down or unreachable.');
+      }
+      
       // Re-throw the error so the UI can catch it
       throw error; 
     } finally {
@@ -139,13 +192,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Sign out function (remains largely the same, could add backend call)
+  // Enhanced sign out function
   const signOut = async () => {
     try {
       setIsLoading(true);
-      // Optional: Call a backend /api/auth/logout endpoint here
-      // await fetch(`${API_URL}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-
+      console.log('Signing out user');
+      
       // Clear local state
       setUser(null);
       setToken(null);
@@ -153,6 +205,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Clear stored auth data
       await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
       await AsyncStorage.removeItem(USER_DATA_KEY);
+      console.log('Auth data cleared from AsyncStorage');
+      
     } catch (error) {
       console.error('Sign out error:', error);
     } finally {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, TextInput, TouchableOpacity, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
+import { View, ActivityIndicator, TextInput, TouchableOpacity, KeyboardAvoidingView, ScrollView, Platform, Alert } from 'react-native';
 import { Text } from '../components/ui/text';
 import { Button } from '../components/ui/button';
 import { router, useNavigation } from 'expo-router';
@@ -18,8 +18,8 @@ const themeColors = (fullConfig.theme?.extend?.colors ?? fullConfig.theme?.color
 export default function LoginScreen() {
   const { signIn, signUp, user, isLoading: authIsLoading } = useAuth();
   const navigation = useNavigation();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('test@example.com');
+  const [password, setPassword] = useState('password123');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -38,6 +38,21 @@ export default function LoginScreen() {
     });
   }, [navigation]);
 
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
+    if (isLoading) {
+      timeoutId = setTimeout(() => {
+        setIsLoading(false);
+        setError('Request timed out. Please check your internet connection and try again.');
+      }, 15000);
+    }
+    
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isLoading]);
+
   const handleAuthAction = async () => {
     if (!email || !password || (isSignUpMode && !name)) {
       setError('Please fill in all required fields.');
@@ -49,18 +64,44 @@ export default function LoginScreen() {
 
     try {
       if (isSignUpMode) {
+        // Try our client-side mock registration
         await signUp({ email, password, name });
-        setSuccessMessage('Registration successful! Please sign in.');
+        
+        // If we get here, registration was successful 
+        setSuccessMessage(`Registration successful! An account for ${email} has been created. Please sign in.`);
         setIsSignUpMode(false);
-        setEmail('');
-        setPassword('');
+        
+        // Clear form if it's not the test account
+        if (email !== 'test@example.com') {
+          setEmail('');
+          setPassword('');
+        }
         setName('');
       } else {
+        console.log(`Attempting to sign in with email: ${email}`);
         await signIn(email, password);
+        console.log('Sign in successful');
       }
     } catch (err: any) {
       console.error(`Failed to ${isSignUpMode ? 'sign up' : 'sign in'}:`, err);
-      setError(err.message || `Failed to ${isSignUpMode ? 'sign up' : 'sign in'}. Please try again.`);
+      // Add more detailed error message
+      const errorMessage = err.message || `Failed to ${isSignUpMode ? 'sign up' : 'sign in'}. Please try again.`;
+      
+      if (isSignUpMode) {
+        setError(errorMessage);
+      } else {
+        // For login errors, suggest test credentials
+        setError(`${errorMessage} (Try using test@example.com / password123)`);
+      }
+      
+      // If this is a network error, show additional information
+      if (err.message && err.message.includes('Network')) {
+        Alert.alert(
+          'Network Error',
+          'Could not connect to the server. Please check your internet connection and the API URL configuration.',
+          [{ text: 'OK' }]
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -95,9 +136,15 @@ export default function LoginScreen() {
             {isSignUpMode ? 'Create Account' : 'The Good Cup'}
           </Text>
           
-          <Text className="text-base text-center text-cool-gray-green mb-12 px-6">
+          <Text className="text-base text-center text-cool-gray-green mb-6 px-6">
             {isSignUpMode ? 'Join us to track your coffee journey.' : 'Track your coffee journey, improve your brews, and discover the perfect cup.'}
           </Text>
+          
+          {!isSignUpMode && (
+            <Text className="text-sm text-center text-cool-gray-green mb-6 italic">
+              Use test@example.com / password123 to login
+            </Text>
+          )}
           
           <View className="w-full max-w-sm space-y-4 mb-4">
             {isSignUpMode && (
@@ -167,4 +214,4 @@ export default function LoginScreen() {
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
-} 
+}
