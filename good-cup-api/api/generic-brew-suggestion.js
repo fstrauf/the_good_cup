@@ -125,9 +125,9 @@ Provide brew parameters optimized for this specific coffee's characteristics.
 Return ONLY a JSON object with the following structure without any text outside the JSON:
 {
   "suggestionText": "A brief explanation of why these parameters would work well with this coffee (2-3 sentences)",
-  "suggestedGrindSize": "Suggested grind size (e.g. Fine, Medium-Fine, Medium, Medium-Coarse, Coarse)",
-  "suggestedWaterTemp": 93,
-  "suggestedSteepTimeSeconds": 150,
+  "suggestedGrindSize": "Suggested grind size in clicks of the grinder (e.g. 10, 15, 20, 25, 30)",
+  "suggestedWaterTemp": "Suggested water temperature in Celsius (e.g. 93, 95, 97, 100)",
+  "suggestedSteepTimeSeconds": "Suggested steep time in seconds (e.g. 150, 180, 210, 240)",
   "suggestedUseBloom": true,
   "suggestedBloomTimeSeconds": 30
 }

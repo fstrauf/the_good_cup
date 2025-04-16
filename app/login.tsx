@@ -18,8 +18,8 @@ const themeColors = (fullConfig.theme?.extend?.colors ?? fullConfig.theme?.color
 export default function LoginScreen() {
   const { signIn, signUp, user, isLoading: authIsLoading } = useAuth();
   const navigation = useNavigation();
-  const [email, setEmail] = useState('test@example.com');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -71,11 +71,9 @@ export default function LoginScreen() {
         setSuccessMessage(`Registration successful! An account for ${email} has been created. Please sign in.`);
         setIsSignUpMode(false);
         
-        // Clear form if it's not the test account
-        if (email !== 'test@example.com') {
-          setEmail('');
-          setPassword('');
-        }
+        // Clear form
+        setEmail('');
+        setPassword('');
         setName('');
       } else {
         console.log(`Attempting to sign in with email: ${email}`);
@@ -87,12 +85,7 @@ export default function LoginScreen() {
       // Add more detailed error message
       const errorMessage = err.message || `Failed to ${isSignUpMode ? 'sign up' : 'sign in'}. Please try again.`;
       
-      if (isSignUpMode) {
-        setError(errorMessage);
-      } else {
-        // For login errors, suggest test credentials
-        setError(`${errorMessage} (Try using test@example.com / password123)`);
-      }
+      setError(errorMessage);
       
       // If this is a network error, show additional information
       if (err.message && err.message.includes('Network')) {
@@ -139,12 +132,6 @@ export default function LoginScreen() {
           <Text className="text-base text-center text-cool-gray-green mb-6 px-6">
             {isSignUpMode ? 'Join us to track your coffee journey.' : 'Track your coffee journey, improve your brews, and discover the perfect cup.'}
           </Text>
-          
-          {!isSignUpMode && (
-            <Text className="text-sm text-center text-cool-gray-green mb-6 italic">
-              Use test@example.com / password123 to login
-            </Text>
-          )}
           
           <View className="w-full max-w-sm space-y-4 mb-4">
             {isSignUpMode && (

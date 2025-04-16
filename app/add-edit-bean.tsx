@@ -281,23 +281,56 @@ function BeanEditor() {
     try {
       setAnalyzing(true);
       console.log("Analyzing photo...");
+      
+      // Check if token exists before making the API call
+      if (!token) {
+        console.error("No authentication token available");
+        setErrorText("Authentication error. Please sign in again.");
+        Alert.alert("Authentication Error", "Please sign in again to analyze images.");
+        return;
+      }
+      
       // Pass the auth token to the analyzeImage function
       const extractedData = await analyzeImage(base64Image, token);
       console.log("Extracted data:", extractedData);
-      const { beanName, roastLevel, flavorNotes, description } = extractedData;
+      const { beanName, roastLevel, flavorNotes, description, roastedDate } = extractedData;
+      
+      // Parse roasted date if available
+      let parsedRoastedDate: number | undefined = undefined;
+      if (roastedDate && roastedDate !== "Unknown" && roastedDate !== null) {
+        try {
+          // Try to parse the date string into a timestamp
+          const dateObj = new Date(roastedDate);
+          if (!isNaN(dateObj.getTime())) {
+            parsedRoastedDate = dateObj.getTime();
+            console.log("Parsed roasted date:", new Date(parsedRoastedDate).toLocaleDateString());
+          }
+        } catch (err) {
+          console.error("Failed to parse roasted date:", roastedDate, err);
+        }
+      }
       
       setNewBean((prev) => ({
         ...prev,
         name: beanName && beanName !== "Unknown" ? beanName : prev.name,
-        roastLevel: roastLevel && roastLevel !== "Unknown" ? roastLevel : prev.roastLevel,
+        roastLevel: roastLevel && roastLevel !== "Unknown" ? 
+          (typeof roastLevel === 'string' ? roastLevel.toLowerCase() : prev.roastLevel) : 
+          prev.roastLevel,
         flavorNotes: flavorNotes && flavorNotes.length > 0 ? flavorNotes : prev.flavorNotes,
         description: description && description !== "Unknown" ? description : prev.description,
+        roastedDate: parsedRoastedDate || prev.roastedDate,
       }));
       
       Alert.alert("Analysis Complete", "Bean information extracted from the photo!");
     } catch (error) {
       console.error("Error analyzing image:", error);
-      Alert.alert("Analysis Error", "Could not analyze the image. Please try again or enter details manually.");
+      if (error instanceof Error && error.message.includes('Unauthorized')) {
+        setErrorText("Authentication error. Please sign in again.");
+        Alert.alert("Authentication Error", "Your session may have expired. Please sign in again.");
+      } else {
+        setErrorText("Failed to analyze image");
+        Alert.alert("Analysis Error", "Could not analyze the image. Please try again or enter details manually.");
+      }
     } finally {
       setAnalyzing(false);
     }

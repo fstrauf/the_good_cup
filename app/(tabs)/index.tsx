@@ -264,6 +264,10 @@ export default function BeansScreen() {
               errorMessage = "No internet connection detected. Please check your network and try again.";
             } else if (error.message?.includes("timeout")) {
               errorMessage = "The request to OpenAI timed out. Please try again later.";
+            } else if (error.message?.includes("Unauthorized")) {
+              errorMessage = "Your session has expired. Please sign in again.";
+              Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
+              router.replace("/login");
             }
             setBeanSuggestion(errorMessage);
           }
@@ -315,6 +319,10 @@ export default function BeansScreen() {
             errorMessage = "No internet connection detected. Please check your network and try again.";
           } else if (error.message?.includes("timeout")) {
             errorMessage = "The request to OpenAI timed out. Please try again later.";
+          } else if (error.message?.includes("Unauthorized")) {
+            errorMessage = "Your session has expired. Please sign in again.";
+            Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
+            router.replace("/login");
           }
           setBeanSuggestion(errorMessage);
         }
@@ -339,6 +347,10 @@ export default function BeansScreen() {
         errorMessage = "The request to OpenAI timed out. Please try again later.";
       } else if (error.message?.includes("parse")) {
         errorMessage = "Could not understand the suggestion format received. Please try again.";
+      } else if (error.message?.includes("Unauthorized")) {
+        errorMessage = "Your session has expired. Please sign in again.";
+        Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
+        router.replace("/login");
       }
       setModalSuggestionText(errorMessage);
       setNavigationData(null);

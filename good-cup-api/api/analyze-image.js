@@ -73,18 +73,18 @@ module.exports = async (req, res) => {
 
     const prompt = `Analyze this coffee bean package image and extract the following information:
 1. Bean Name: The name of the coffee beans
-2. Origin Country: The country where the beans are from
-3. Processing Method: The process used (washed, natural, honey, etc.)
-4. Roast Level: The roast level (light, medium, dark, etc.)
-5. Flavor Notes: The flavor notes mentioned on the package
+2. Roast Level: The roast level (light, medium, dark, etc.)
+3. Flavor Notes: The flavor notes mentioned on the package
+4. Description: A description of the coffee beans
+5. Roast Date: The date the beans were roasted
 
 Return ONLY a JSON object with the following structure without any text outside the JSON:
 {
-  "beanName": "Name of the coffee beans",
-  "country": "Origin country",
-  "process": "Processing method",
-  "roastLevel": "Roast level",
-  "flavorNotes": ["Note 1", "Note 2", "Note 3"]
+  "beanName": "Name of the coffee beans (infer this from the description if necessary",
+  "roastLevel": ["Light","Medium-Light", "Medium", "Medium-Dark", "Dark"],
+  "flavorNotes": ["Note 1", "Note 2", "Note 3"],
+  "description": "Description of the coffee beans",
+  "roastedDate": "Date the beans were roasted"
 }
 
 If any information is not visible or cannot be determined from the image, use null for that field.`;
