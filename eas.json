@@ -9,21 +9,21 @@
       "distribution": "internal",
       "environment": "development",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://the-good-cup-api.vercel.app/"
+        "EXPO_PUBLIC_API_URL": "https://good-cup-api.vercel.app"
       }
     },
     "preview": {
       "distribution": "internal",
       "environment": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://the-good-cup-api.vercel.app/"
+        "EXPO_PUBLIC_API_URL": "https://good-cup-api.vercel.app"
       }
     },
     "production": {
       "autoIncrement": true,
       "environment": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://the-good-cup-api.vercel.app/"
+        "EXPO_PUBLIC_API_URL": "https://good-cup-api.vercel.app"
       }
     }
   },

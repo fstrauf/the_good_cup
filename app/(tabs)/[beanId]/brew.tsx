@@ -159,10 +159,13 @@ const HomeScreenComponent = () => {
     }
 
     // Check if this navigation is from a suggestion
-    if (params.fromSuggestion === "true") {
-      console.log("[Effect] Processing suggestion parameters...");
-      
-      // ALWAYS update state if suggestion params are present
+    if (params.fromSuggestion === "true" && !suggestionApplied) {
+      console.log("[Effect] Processing suggestion parameters (first time)...");
+
+      // Mark suggestion as applied FIRST to prevent re-application
+      setSuggestionApplied(true);
+
+      // Apply suggestion parameters
       if (params.suggestion) {
         setSuggestion(params.suggestion);
       }
@@ -201,27 +204,18 @@ const HomeScreenComponent = () => {
          setBloomTime("");
       }
 
-      // NOW, check if the modal should be shown (only if not already applied)
-      if (!suggestionApplied) {
-        // Schedule the modal to open
-        modalTimeoutRef.current = setTimeout(() => {
-          setSuggestionModalVisible(true);
-          modalTimeoutRef.current = null; // Clear ref after execution
-        }, 100);
-        // Mark suggestion as applied (so modal doesn't reopen)
-        setSuggestionApplied(true);
-        console.log("[Effect] Suggestion parameters applied and modal scheduled.");
-      } else {
-        console.log("[Effect] Suggestion parameters applied, but modal already shown/applied, skipping modal display.");
-        // Ensure modal isn't visible if we land here unexpectedly
-         setSuggestionModalVisible(false);
-      }
+      // Schedule the modal to open after applying params
+      modalTimeoutRef.current = setTimeout(() => {
+        setSuggestionModalVisible(true);
+        modalTimeoutRef.current = null; // Clear ref after execution
+      }, 100);
+      console.log("[Effect] Suggestion parameters applied and modal scheduled.");
 
-    } else {
-       console.log("[Effect] Not a navigation from suggestion or no suggestion param found.");
+    } else if (params.fromSuggestion !== "true") {
+       console.log("[Effect] Not a navigation from suggestion or suggestion already applied.");
        // Reset suggestionApplied flag and ensure modal is closed if navigating normally
-       setSuggestionApplied(false);
-       setSuggestionModalVisible(false);
+       if (suggestionApplied) setSuggestionApplied(false); // Reset only if it was true
+       if (suggestionModalVisible) setSuggestionModalVisible(false); // Ensure modal is closed
     }
 
     // Cleanup function remains the same
@@ -247,6 +241,11 @@ const HomeScreenComponent = () => {
   useEffect(() => {
     loadEquipment();
   }, []);
+
+  // Add effect to monitor useBloom state changes
+  useEffect(() => {
+    console.log("[useEffect] useBloom state changed to:", useBloom);
+  }, [useBloom]);
 
   const loadEquipment = async () => {
     try {
@@ -434,8 +433,8 @@ const HomeScreenComponent = () => {
 
   console.log("[Render] Brew Device Options:", brewDeviceOptions);
   console.log("[Render] Grinder Options:", grinderOptions);
-
   console.log("[Render] Current waterTemp state:", waterTemp);
+  console.log("[Render] Current useBloom state:", useBloom);
 
   if (!beanName) {
     return (
@@ -485,7 +484,10 @@ const HomeScreenComponent = () => {
               <Text className="text-base font-medium text-charcoal">Use Bloom?</Text>
               <RNSwitch
                 value={useBloom}
-                onValueChange={setUseBloom}
+                onValueChange={(value) => {
+                  console.log("[RNSwitch] useBloom value being set to:", value);
+                  setUseBloom(value);
+                }}
                 trackColor={{ false: themeColors["pale-gray"], true: themeColors["cool-gray-green"] }}
                 thumbColor={themeColors["soft-off-white"]}
                 ios_backgroundColor={themeColors["pale-gray"]}
@@ -505,6 +507,24 @@ const HomeScreenComponent = () => {
                 />
               </View>
             )}
+
+            {/* Debug button for bloom toggle */}
+            <TouchableOpacity 
+              onPress={() => {
+                console.log("[Debug Button] Toggling useBloom from:", useBloom, "to:", !useBloom);
+                setUseBloom(!useBloom);
+              }}
+              style={{ 
+                backgroundColor: themeColors["pale-gray"],
+                padding: 5,
+                borderRadius: 5,
+                marginBottom: 10
+              }}
+            >
+              <Text style={{ color: themeColors["charcoal"], textAlign: 'center' }}>
+                Debug: Toggle Bloom ({useBloom ? "ON" : "OFF"})
+              </Text>
+            </TouchableOpacity>
 
             <View className="mb-4">
               <Text className="text-base font-medium text-charcoal mb-2">Grind Size</Text>
