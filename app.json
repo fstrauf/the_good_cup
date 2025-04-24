@@ -18,7 +18,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.the-good-cup",
+      "bundleIdentifier": "com.straufprojects.the-good-cup",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -28,7 +28,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.anonymous.thegoodcup"
+      "package": "com.straufprojects.thegoodcup"
     },
     "web": {
       "bundler": "metro",

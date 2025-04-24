@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Modal,
   Text as RNText,
+  Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -60,6 +61,7 @@ interface Brew {
   waterTemp: string;
   brewDevice?: string;
   grinder?: string;
+  roastedDate?: number;
 }
 
 // Add BrewDevice interface if not already defined
@@ -205,29 +207,35 @@ export default function BeansScreen() {
     }
   };
 
-  const getOptimalBrewSuggestions = async (bean: Bean) => {
-    setSelectedBeanForSuggestion(bean);
-    console.log(`[getOptimalBrewSuggestions] Started for bean: ${bean.name}`);
-    setNavigationData(null);
+  const fetchSuggestions = async (bean: Bean, userComment?: string) => {
+    console.log(`[fetchSuggestions] Started for bean: ${bean.name}, Comment: ${userComment || 'None'}`);
     setSuggestionModalVisible(true);
     setGettingSuggestion(true);
+    setNavigationData(null);
     setModalSuggestionText("");
+
     try {
-      console.log(`[getOptimalBrewSuggestions] Getting stored brews for ${bean.name}...`);
+      console.log(`[fetchSuggestions] Getting stored brews for ${bean.name}...`);
       const storedBrews = await AsyncStorage.getItem(BREWS_STORAGE_KEY);
-      console.log(`[getOptimalBrewSuggestions] Stored brews retrieved: ${!!storedBrews}`);
+      console.log(`[fetchSuggestions] Stored brews retrieved: ${!!storedBrews}`);
       let suggestionResponse: BrewSuggestionResponse | null = null;
       let hasBrewHistory = false;
       if (storedBrews) {
-        console.log(`[getOptimalBrewSuggestions] Processing stored brews...`);
+        console.log(`[fetchSuggestions] Processing stored brews...`);
         const brews: Brew[] = JSON.parse(storedBrews);
         const beanBrews = brews.filter((brew) => brew.beanName === bean.name);
-        if (beanBrews.length > 0) {
+
+        const brewsWithDate = beanBrews.map(brew => ({
+          ...brew,
+          roastedDate: brew.roastedDate ?? bean.roastedDate
+        }));
+
+        if (brewsWithDate.length > 0) {
           console.log(
-            `[getOptimalBrewSuggestions] Found ${beanBrews.length} brews for ${bean.name}. Attempting suggestion based on history.`
+            `[fetchSuggestions] Found ${brewsWithDate.length} brews for ${bean.name}. Attempting suggestion based on history.`
           );
           hasBrewHistory = true;
-          const sortedBrews = beanBrews.sort((a, b) => b.rating - a.rating);
+          const sortedBrews = brewsWithDate.sort((a, b) => b.rating - a.rating);
           const bestBrew = sortedBrews[0];
           const currentGrinderId = bestBrew.grinder;
           let currentGrinderName: string | undefined = undefined;
@@ -237,24 +245,25 @@ export default function BeansScreen() {
             currentGrinderName = grinders.find((g) => g.id === currentGrinderId)?.name;
           }
           console.log(
-            `[getOptimalBrewSuggestions] Grinder context: ID=${currentGrinderId}, Name=${currentGrinderName}`
+            `[fetchSuggestions] Grinder context: ID=${currentGrinderId}, Name=${currentGrinderName}`
           );
           try {
-            console.log(`[getOptimalBrewSuggestions] Calling getBrewSuggestions API...`);
+            console.log(`[fetchSuggestions] Calling getBrewSuggestions API...`);
             suggestionResponse = await getBrewSuggestions(
               bestBrew,
               sortedBrews,
               bean.name,
               currentGrinderName,
-              token
+              token,
+              // userComment // <<< Temporarily remove userComment until lib definition is updated
             );
             console.log(
-              "[getOptimalBrewSuggestions] Successfully generated suggestion from brew history:",
+              "[fetchSuggestions] Successfully generated suggestion from brew history:",
               suggestionResponse?.suggestionText?.substring(0, 50) + "..."
             );
           } catch (error: any) {
             console.error(
-              "[getOptimalBrewSuggestions] Error getting brew suggestions from history:",
+              "[fetchSuggestions] Error getting brew suggestions from history:",
               error.message || error
             );
             let errorMessage = "Error getting brew suggestions based on history. Please try again later.";
@@ -269,17 +278,18 @@ export default function BeansScreen() {
               Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
               router.replace("/login");
             }
-            setBeanSuggestion(errorMessage);
+            setModalSuggestionText(errorMessage);
+            setNavigationData(null);
           }
         }
       }
+
       if (!hasBrewHistory || !suggestionResponse) {
         console.log(
-          `[getOptimalBrewSuggestions] No history or history suggestion failed. Attempting generic suggestion.`
+          `[fetchSuggestions] No history or history suggestion failed. Attempting generic suggestion.`
         );
         try {
-          // --- Determine Brew Method --- 
-          let brewMethod = 'Pour Over'; // Default method
+          let brewMethod = 'Pour Over';
           const defaultDeviceId = await AsyncStorage.getItem(DEFAULT_BREW_DEVICE_KEY);
           if (defaultDeviceId) {
             const storedDevices = await AsyncStorage.getItem(BREW_DEVICES_STORAGE_KEY);
@@ -287,31 +297,31 @@ export default function BeansScreen() {
             const defaultDevice = devices.find(d => d.id === defaultDeviceId);
             if (defaultDevice) {
               brewMethod = defaultDevice.name; 
-              console.log(`[getOptimalBrewSuggestions] Using default brew method: ${brewMethod}`);
+              console.log(`[fetchSuggestions] Using default brew method: ${brewMethod}`);
             }
           } else {
-             console.log(`[getOptimalBrewSuggestions] No default brew method set, using: ${brewMethod}`);
+             console.log(`[fetchSuggestions] No default brew method set, using: ${brewMethod}`);
           }
-          // --- End Determine Brew Method ---
 
           const roastLevelLabel = bean.roastLevel;
           const beanWithMethod = {
             ...bean,
             roastLevel: roastLevelLabel,
             roastedDate: bean.roastedDate || undefined,
-            brewMethod: brewMethod, // Add the determined brew method
+            brewMethod: brewMethod,
           };
-          console.log(`[getOptimalBrewSuggestions] Calling generateGenericBrewSuggestion API with method: ${brewMethod}...`);
+          console.log(`[fetchSuggestions] Calling generateGenericBrewSuggestion API with method: ${brewMethod}...`);
           suggestionResponse = await generateGenericBrewSuggestion(
             beanWithMethod,
-            token
+            token,
+            // userComment // <<< Temporarily remove userComment until lib definition is updated
           );
           console.log(
-            "[getOptimalBrewSuggestions] Successfully generated generic suggestion:",
+            "[fetchSuggestions] Successfully generated generic suggestion:",
             suggestionResponse?.suggestionText?.substring(0, 50) + "..."
           );
         } catch (error: any) {
-          console.error("[getOptimalBrewSuggestions] Error generating generic suggestion:", error.message || error);
+          console.error("[fetchSuggestions] Error generating generic suggestion:", error.message || error);
           let errorMessage = "Error generating suggestions. Please try again later.";
           if (error.message?.includes("API key")) {
             errorMessage = "OpenAI API key not found or invalid. Please check your settings.";
@@ -324,20 +334,22 @@ export default function BeansScreen() {
             Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
             router.replace("/login");
           }
-          setBeanSuggestion(errorMessage);
+          setModalSuggestionText(errorMessage);
+          setNavigationData(null);
         }
       }
+
       if (suggestionResponse) {
-        console.log("[getOptimalBrewSuggestions] Suggestion response obtained:", suggestionResponse);
+        console.log("[fetchSuggestions] Suggestion response obtained:", suggestionResponse);
         setModalSuggestionText(suggestionResponse.suggestionText || "No suggestion text provided.");
         setNavigationData({ bean: bean, suggestionResponse: suggestionResponse });
-      } else {
-        console.log("[getOptimalBrewSuggestions] No valid suggestion obtained after parsing attempts.");
+      } else if (!modalSuggestionText) {
+        console.log("[fetchSuggestions] No valid suggestion obtained after parsing attempts.");
         setModalSuggestionText("Could not generate or parse brewing suggestions. Please try again later.");
         setNavigationData(null);
       }
     } catch (error: any) {
-      console.error("[getOptimalBrewSuggestions] Error in main try block:", error);
+      console.error("[fetchSuggestions] Error in main try block:", error);
       let errorMessage = "An unexpected error occurred while generating suggestions. Please try again later.";
       if (error.message?.includes("API key")) {
         errorMessage = "OpenAI API key not found or invalid. Please check your settings.";
@@ -355,34 +367,41 @@ export default function BeansScreen() {
       setModalSuggestionText(errorMessage);
       setNavigationData(null);
     } finally {
-      console.log("[getOptimalBrewSuggestions] Executing finally block.");
+      console.log("[fetchSuggestions] Executing finally block.");
       setGettingSuggestion(false);
     }
   };
 
-  // --- Network Test --- (Keep this)
-  useEffect(() => {
-    const testNetwork = async () => {
-      try {
-        console.log("[Network Test] Attempting to fetch google.com...");
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        const response = await fetch("https://google.com");
-        console.log("[Network Test] Google fetch status:", response.status);
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-        console.log("[Network Test] Attempting second fetch...");
-        const response2 = await fetch("https://google.com");
-        console.log("[Network Test] Second fetch status:", response2.status);
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-        console.log("[Network Test] Attempting third fetch...");
-        const response3 = await fetch("https://google.com");
-        console.log("[Network Test] Third fetch status:", response3.status);
-      } catch (error) {
-        console.error("[Network Test] Error fetching google.com:", error);
-      }
-    };
-    testNetwork();
-  }, []);
-  // --- End Network Test ---
+  const getOptimalBrewSuggestions = async (bean: Bean) => {
+    setSelectedBeanForSuggestion(bean);
+
+    Alert.prompt(
+      'Add Comment?',
+      'Optional: Add any specific requests or context for the suggestion (e.g., "make it less bitter", "want brighter flavors").',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => {
+            console.log('Suggestion cancelled by user.');
+            setSelectedBeanForSuggestion(null);
+          },
+        },
+        {
+          text: 'Get Suggestion',
+          onPress: (comment) => {
+            if (selectedBeanForSuggestion) {
+              fetchSuggestions(selectedBeanForSuggestion, comment);
+            } else {
+              console.error("No bean selected when trying to fetch suggestions.");
+              Alert.alert("Error", "Could not get suggestions. Please try again.");
+            }
+          },
+        },
+      ],
+      Platform.OS === 'ios' ? 'plain-text' : undefined
+    );
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-soft-off-white" edges={["top", "left", "right"]}>
@@ -403,7 +422,7 @@ export default function BeansScreen() {
           </View>
         </View>
 
-        <ScrollView className="flex-1 px-3 pt-2">
+        <ScrollView className="flex-1 px-3 pt-2 pb-24">
           {beans.length === 0 ? (
             <View className="mx-0 my-4 rounded-xl p-6 items-center bg-soft-off-white border border-pale-gray">
               <Coffee size={40} color={themeColors['cool-gray-green']} />
@@ -538,24 +557,8 @@ export default function BeansScreen() {
               </Text>
               <TouchableOpacity
                 onPress={() => {
-                  if (navigationData?.suggestionResponse) {
-                    const { suggestionResponse, bean } = navigationData;
-                    const paramsToPass = {
-                      beanId: bean.id,
-                      beanName: bean.name,
-                      suggestion: suggestionResponse.suggestionText || "",
-                      grindSize: suggestionResponse.suggestedGrindSize || "",
-                      waterTemp: suggestionResponse.suggestedWaterTemp || "",
-                      steepTime: suggestionResponse.suggestedSteepTimeSeconds?.toString() || "",
-                      useBloom: suggestionResponse.suggestedUseBloom ? "true" : "false",
-                      bloomTime: suggestionResponse.suggestedBloomTimeSeconds?.toString() || "",
-                      fromSuggestion: "true",
-                      roastedDate: bean.roastedDate ? bean.roastedDate.toString() : undefined
-                    };
-                    router.push({ pathname: "/[beanId]/brew" as any, params: paramsToPass });
-                    setNavigationData(null);
-                    setModalSuggestionText("");
-                  }
+                  setNavigationData(null);
+                  setModalSuggestionText("");
                   setSuggestionModalVisible(false);
                 }}
                 className="p-1"
@@ -626,6 +629,7 @@ export default function BeansScreen() {
                   setNavigationData(null);
                   setModalSuggestionText("");
                 }}
+                disabled={gettingSuggestion}
               >
                 <Text className="text-charcoal font-bold">Close</Text>
               </Button>

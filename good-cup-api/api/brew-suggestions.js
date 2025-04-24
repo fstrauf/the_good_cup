@@ -88,7 +88,7 @@ module.exports = async (req, res) => {
 
   try {
     const requestBody = req.body || {};
-    const { currentBrew, previousBrews, selectedBeanName, currentGrinderName, beanName, brewMethod, roastLevel, flavorNotes, roastedDate, country, process } = requestBody;
+    const { currentBrew, previousBrews, selectedBeanName, currentGrinderName, beanName, brewMethod, roastLevel, flavorNotes, roastedDate, country, process, userComment } = requestBody;
     
     // Initialize OpenAI client
     const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -132,6 +132,11 @@ ${prevBrewAge !== null ? `- Age When Brewed: ${prevBrewAge} days` : ''}
         });
       }
 
+      if (userComment && userComment.trim()) {
+        prompt += `\nUser's Request/Comment: ${userComment.trim()}\nPlease take this comment into consideration.
+`;
+      }
+
       prompt += `
 Based on the current brew and any previous brews of the same bean, please provide concise suggestions to improve the brewing process. Consider these factors:
 1. Grind size adjustments
@@ -166,7 +171,14 @@ Bean Age (days since roast): ${beanAge !== null ? beanAge : 'Unknown'}
 Brew Method: ${brewMethod}
 ${currentGrinderName ? `Grinder: ${currentGrinderName}
 ` : ''}
-Provide brew parameters optimized for this specific coffee's characteristics as a starting point.
+`;
+
+      if (userComment && userComment.trim()) {
+        prompt += `User's Request/Comment: ${userComment.trim()}\nPlease take this comment into consideration when suggesting parameters.
+`;
+      }
+
+      prompt += `Provide brew parameters optimized for this specific coffee's characteristics as a starting point.
 `;
 
     } else {
