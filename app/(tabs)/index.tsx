@@ -9,9 +9,10 @@ import {
   Modal,
   Text as RNText,
   Platform,
+  TextInput,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { getBrewSuggestions, generateGenericBrewSuggestion } from "../../lib/openai";
 import type { BrewSuggestionResponse, Grinder } from "../../lib/openai";
@@ -132,6 +133,8 @@ const SuggestedParameters: React.FC<{ response: BrewSuggestionResponse }> = ({ r
 };
 
 export default function BeansScreen() {
+  const insets = useSafeAreaInsets();
+  console.log('Bottom Inset:', insets.bottom);
   const isFirstRender = useRef(true);
   const router = useRouter();
   const navigation = useNavigation();
@@ -155,6 +158,11 @@ export default function BeansScreen() {
   const [navigationData, setNavigationData] = useState<NavigationParams | null>(null);
   const [modalSuggestionText, setModalSuggestionText] = useState<string>("");
   const { token } = useAuth(); // Get auth token for API calls
+
+  // <<< New State >>>
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [suggestionComment, setSuggestionComment] = useState("");
+  // <<< End New State >>>
 
   const loadBeans = useCallback(async () => {
     try {
@@ -255,7 +263,7 @@ export default function BeansScreen() {
               bean.name,
               currentGrinderName,
               token,
-              // userComment // <<< Temporarily remove userComment until lib definition is updated
+              userComment
             );
             console.log(
               "[fetchSuggestions] Successfully generated suggestion from brew history:",
@@ -314,7 +322,7 @@ export default function BeansScreen() {
           suggestionResponse = await generateGenericBrewSuggestion(
             beanWithMethod,
             token,
-            // userComment // <<< Temporarily remove userComment until lib definition is updated
+            userComment
           );
           console.log(
             "[fetchSuggestions] Successfully generated generic suggestion:",
@@ -374,33 +382,8 @@ export default function BeansScreen() {
 
   const getOptimalBrewSuggestions = async (bean: Bean) => {
     setSelectedBeanForSuggestion(bean);
-
-    Alert.prompt(
-      'Add Comment?',
-      'Optional: Add any specific requests or context for the suggestion (e.g., "make it less bitter", "want brighter flavors").',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-          onPress: () => {
-            console.log('Suggestion cancelled by user.');
-            setSelectedBeanForSuggestion(null);
-          },
-        },
-        {
-          text: 'Get Suggestion',
-          onPress: (comment) => {
-            if (selectedBeanForSuggestion) {
-              fetchSuggestions(selectedBeanForSuggestion, comment);
-            } else {
-              console.error("No bean selected when trying to fetch suggestions.");
-              Alert.alert("Error", "Could not get suggestions. Please try again.");
-            }
-          },
-        },
-      ],
-      Platform.OS === 'ios' ? 'plain-text' : undefined
-    );
+    setSuggestionComment("");
+    setCommentModalVisible(true);
   };
 
   return (
@@ -422,7 +405,11 @@ export default function BeansScreen() {
           </View>
         </View>
 
-        <ScrollView className="flex-1 px-3 pt-2 pb-24">
+        <ScrollView 
+          className="flex-1 px-3 pt-2" 
+          contentContainerStyle={{ paddingBottom: insets.bottom + 42 }}
+          showsVerticalScrollIndicator={false}
+        >
           {beans.length === 0 ? (
             <View className="mx-0 my-4 rounded-xl p-6 items-center bg-soft-off-white border border-pale-gray">
               <Coffee size={40} color={themeColors['cool-gray-green']} />
@@ -540,9 +527,85 @@ export default function BeansScreen() {
               </View>
             ))
           )}
-          <View className="h-5" />
         </ScrollView>
       </View>
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={commentModalVisible}
+        onRequestClose={() => {
+          setCommentModalVisible(false);
+          setSelectedBeanForSuggestion(null);
+        }}
+      >
+        <View className="flex-1 justify-center items-center bg-charcoal/60 p-5">
+          <View className="w-full bg-soft-off-white rounded-2xl p-5 max-h-[85%] shadow-lg border border-pale-gray">
+            <View className="flex-row justify-between items-center mb-3">
+              <Text className="text-xl font-semibold text-charcoal flex-1 mr-2" numberOfLines={1}>
+                Add Comment? (Optional)
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setCommentModalVisible(false);
+                  setSelectedBeanForSuggestion(null);
+                }}
+                className="p-1"
+              >
+                <X size={24} color={themeColors['cool-gray-green']} />
+              </TouchableOpacity>
+            </View>
+
+            <Text className="text-sm text-cool-gray-green mb-3">
+              Add specific requests or context (e.g., "make it less bitter", "want brighter flavors").
+            </Text>
+
+            <TextInput
+              value={suggestionComment}
+              onChangeText={setSuggestionComment}
+              placeholder="Enter comment here..."
+              placeholderTextColor={themeColors['cool-gray-green']}
+              multiline={true}
+              numberOfLines={4}
+              textAlignVertical="top"
+              className="bg-white border border-pale-gray rounded-lg p-3 text-charcoal text-base mb-4"
+              style={{
+                  height: 100,
+              }}
+            />
+
+            <View className="flex-row justify-end space-x-3">
+              <Button
+                  variant="outline"
+                  size="default"
+                  className="bg-soft-off-white border-cool-gray-green"
+                  onPress={() => {
+                      setCommentModalVisible(false);
+                      setSelectedBeanForSuggestion(null);
+                  }}
+              >
+                  <Text className="text-charcoal font-bold">Cancel</Text>
+              </Button>
+              <Button
+                  variant="default"
+                  size="default"
+                  className="bg-muted-sage-green"
+                  onPress={() => {
+                    if (selectedBeanForSuggestion) {
+                      setCommentModalVisible(false);
+                      fetchSuggestions(selectedBeanForSuggestion, suggestionComment);
+                    } else {
+                      console.error("No bean selected when trying to fetch suggestions.");
+                      Alert.alert("Error", "Could not get suggestions. Please try again.");
+                      setCommentModalVisible(false);
+                    }
+                  }}
+              >
+                  <Text className="text-white font-bold">Get Suggestion</Text>
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <Modal
         animationType="slide"
         transparent={true}

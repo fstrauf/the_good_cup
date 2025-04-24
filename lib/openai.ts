@@ -99,7 +99,8 @@ export async function getBrewSuggestions(
   previousBrews: Brew[],
   selectedBeanName: string,
   currentGrinderName: string | undefined,
-  authToken: string | null
+  authToken: string | null,
+  userComment?: string
 ): Promise<BrewSuggestionResponse | null> {
   try {
     if (!authToken) {
@@ -107,7 +108,7 @@ export async function getBrewSuggestions(
       return null;
     }
 
-    console.log('Calling API with currentBrew:', currentBrew);
+    console.log('Calling API with currentBrew:', currentBrew, 'Comment:', userComment);
     
     const response = await fetch(`${API_URL}/api/brew-suggestions`, {
       method: 'POST',
@@ -119,7 +120,8 @@ export async function getBrewSuggestions(
         currentBrew,
         previousBrews,
         selectedBeanName,
-        currentGrinderName
+        currentGrinderName,
+        userComment
       })
     });
 
@@ -220,17 +222,19 @@ export const analyzeImage = async (
 };
 
 // Refactor generateGenericBrewSuggestion to call backend
-export async function generateGenericBrewSuggestion(bean: { 
-  name: string;
-  roastLevel: string;
-  flavorNotes: string[];
-  description: string;
-  roastedDate?: number;
-  country?: string;
-  process?: string;
-  brewMethod: string;
-},
-  authToken: string | null
+export async function generateGenericBrewSuggestion(
+  bean: {
+    name: string;
+    roastLevel: string;
+    flavorNotes: string[];
+    description: string;
+    roastedDate?: number;
+    country?: string;
+    process?: string;
+    brewMethod: string;
+  },
+  authToken: string | null,
+  userComment?: string
 ): Promise<BrewSuggestionResponse | null> {
   try {
     if (!authToken) {
@@ -238,7 +242,7 @@ export async function generateGenericBrewSuggestion(bean: {
       return null;
     }
 
-    console.log('Calling API with bean data:', bean);
+    console.log('Calling API with bean data:', bean, 'Comment:', userComment);
     
     const response = await fetch(`${API_URL}/api/brew-suggestions`, {
       method: 'POST',
@@ -253,7 +257,8 @@ export async function generateGenericBrewSuggestion(bean: {
         roastLevel: bean.roastLevel,
         flavorNotes: bean.flavorNotes,
         roastedDate: bean.roastedDate,
-        brewMethod: bean.brewMethod || 'French Press'
+        brewMethod: bean.brewMethod || 'French Press',
+        userComment
       })
     });
 
