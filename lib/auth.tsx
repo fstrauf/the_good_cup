@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+// Import API functions for token handling
+import * as api from './api';
 
 // Define the shape of our auth context
 type AuthContextType = {
@@ -53,11 +55,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const loadSavedAuth = async () => {
       try {
-        console.log('Attempting to load auth state from AsyncStorage');
-        const savedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+        console.log('Attempting to load auth state');
+        // Use api.getToken() for the token
+        const savedToken = await api.getToken(); 
         const savedUserData = await AsyncStorage.getItem(USER_DATA_KEY);
         
-        console.log('Token retrieved from storage:', savedToken ? 'Yes (exists)' : 'No');
+        console.log('Token retrieved from SecureStore:', savedToken ? 'Yes (exists)' : 'No');
         console.log('User data retrieved from storage:', savedUserData ? 'Yes (exists)' : 'No');
         
         if (savedToken && savedUserData) {
@@ -119,10 +122,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(newToken);
       setUser(newUser);
 
-      // Save to AsyncStorage
-      await AsyncStorage.setItem(AUTH_TOKEN_KEY, newToken);
+      // Save token using SecureStore via api function
+      await api.storeToken(newToken);
+      // Keep user data in AsyncStorage for now
       await AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(newUser));
-      console.log('Auth data saved to AsyncStorage');
+      console.log('Auth token secured, user data saved to AsyncStorage');
 
     } catch (error: any) {
       console.error('Sign in error details:', error);
@@ -202,10 +206,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setToken(null);
       
-      // Clear stored auth data
-      await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+      // Clear stored auth token using SecureStore via api function
+      await api.removeToken();
+      // Clear user data from AsyncStorage
       await AsyncStorage.removeItem(USER_DATA_KEY);
-      console.log('Auth data cleared from AsyncStorage');
+      console.log('Auth token removed, user data cleared from AsyncStorage');
       
     } catch (error) {
       console.error('Sign out error:', error);

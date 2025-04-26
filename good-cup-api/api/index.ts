@@ -1,28 +1,16 @@
-import { Hono } from 'hono';
+import { Hono, Context } from 'hono';
 import { handle } from 'hono/vercel'; // Keep commented for node server
-import { sign } from 'hono/jwt';
-import { eq } from 'drizzle-orm';
+import { sign, verify } from 'hono/jwt';
+import { eq, and, desc } from 'drizzle-orm';
 import OpenAI from 'openai';
-import dayjs from 'dayjs';
 
 // Drizzle Imports
 import { drizzle } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
-// Import pgSchema
-import { pgTable, text, uuid, timestamp, pgSchema } from 'drizzle-orm/pg-core';
-
-// Define the schema object
-const goodCupSchema = pgSchema('good_cup');
-
-// Define Drizzle users table within the specified schema
-const usersTable = goodCupSchema.table('users', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  name: text('name'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-});
+// Import tables from schema.ts
+import * as schema from './schema'; // Import all exports as 'schema'
+// We also need the usersTable specifically for some queries, let's import it directly
+import { usersTable } from './schema';
 
 // Create the DB client directly in this file
 const connectionString = process.env.DATABASE_URL;
@@ -30,11 +18,11 @@ if (!connectionString) {
   throw new Error('DATABASE_URL environment variable is not set.');
 }
 const sql = neon(connectionString);
-const db = drizzle(sql, { schema: { users: usersTable }, logger: true });
+// Use the imported schema object for the client
+const db = drizzle(sql, { schema, logger: true });
 
 // Restore constants
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = '7d';
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // --- Web Crypto Helper Functions ---
@@ -134,8 +122,50 @@ async function verifyPassword(password: string, storedHashString: string): Promi
 }
 // --- End Web Crypto Helper Functions ---
 
-// Use standard Hono app, remove basePath
-const app = new Hono();
+// --- Type definition for Hono context variables ---
+type HonoEnv = {
+  Variables: {
+    userId: string;
+    // Add other variables here if needed later (e.g., jwtPayload)
+  }
+}
+
+// --- Authentication Middleware ---
+// Update middleware signature to use typed context
+const authMiddleware = async (c: Context<HonoEnv>, next: () => Promise<void>) => {
+  const authHeader = c.req.header('Authorization');
+  if (!JWT_SECRET) {
+    console.error('JWT_SECRET environment variable is not set for middleware.');
+    return c.json({ message: 'Internal Server Error: Configuration missing' }, 500);
+  }
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ message: 'Unauthorized: Missing or invalid token format' }, 401);
+  }
+
+  const token = authHeader.substring(7); // Remove 'Bearer '
+
+  try {
+    const payload = await verify(token, JWT_SECRET);
+    if (!payload || !payload.userId) {
+      return c.json({ message: 'Unauthorized: Invalid token payload' }, 401);
+    }
+    // Add userId to the context (type is now inferred correctly)
+    c.set('userId', payload.userId as string); 
+    await next(); // Proceed to the next handler/middleware
+  } catch (error) {
+    console.error('Token verification failed:', error);
+    // Differentiate between expired and invalid signature if needed
+    if (error instanceof Error && error.name === 'JwtTokenExpired') {
+      return c.json({ message: 'Unauthorized: Token expired' }, 401);
+    }
+    return c.json({ message: 'Unauthorized: Invalid token' }, 401);
+  }
+};
+// --- End Authentication Middleware ---
+
+// Use standard Hono app, initialize with types
+const app = new Hono<HonoEnv>();
 
 // Add a root route for testing
 app.get('/', (c) => {
@@ -644,6 +674,597 @@ Note that suggestedWaterTemp is in Celsius, suggestedSteepTimeSeconds and sugges
     return c.json({ error: 'Internal server error', details: error instanceof Error ? error.message : String(error) }, 500);
   }
 });
+
+// --- Brew Devices API Routes ---
+// Initialize sub-router with types
+const brewDeviceRoutes = new Hono<HonoEnv>();
+
+// Apply auth middleware to all brew device routes
+brewDeviceRoutes.use('*', authMiddleware);
+
+// GET /brew-devices - List all devices for the user
+brewDeviceRoutes.get('/', async (c) => {
+  const userId = c.get('userId');
+  try {
+    const devices = await db.select()
+      .from(schema.brewDevicesTable)
+      .where(eq(schema.brewDevicesTable.userId, userId))
+      .orderBy(schema.brewDevicesTable.createdAt); // Optional: order by creation date
+    return c.json(devices);
+  } catch (error) {
+    console.error('Error fetching brew devices:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// POST /brew-devices - Create a new device
+brewDeviceRoutes.post('/', async (c) => {
+  const userId = c.get('userId');
+  const { name, type, notes } = await c.req.json();
+
+  if (!name || typeof name !== 'string') {
+    return c.json({ message: 'Device name is required' }, 400);
+  }
+
+  try {
+    const newDevice = await db.insert(schema.brewDevicesTable)
+      .values({
+        userId: userId,
+        name: name,
+        type: type || null,
+        notes: notes || null,
+      })
+      .returning(); // Return the newly created device
+      
+    if (newDevice.length === 0) {
+        throw new Error('Failed to create brew device.')
+    }
+    return c.json(newDevice[0], 201);
+  } catch (error) {
+    console.error('Error creating brew device:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// PUT /brew-devices/:id - Update an existing device
+brewDeviceRoutes.put('/:id', async (c) => {
+  const userId = c.get('userId');
+  const deviceId = c.req.param('id');
+  const { name, type, notes } = await c.req.json();
+
+  if (!name || typeof name !== 'string') {
+    return c.json({ message: 'Device name is required' }, 400);
+  }
+
+  try {
+    const updatedDevice = await db.update(schema.brewDevicesTable)
+      .set({
+        name: name,
+        type: type || null,
+        notes: notes || null,
+        updatedAt: new Date(), // Update the timestamp
+      })
+      .where(and(eq(schema.brewDevicesTable.id, deviceId), eq(schema.brewDevicesTable.userId, userId))) // Ensure user owns the device
+      .returning();
+
+    if (updatedDevice.length === 0) {
+      return c.json({ message: 'Brew device not found or update failed' }, 404);
+    }
+    return c.json(updatedDevice[0]);
+  } catch (error) {
+    console.error('Error updating brew device:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// DELETE /brew-devices/:id - Delete a device
+brewDeviceRoutes.delete('/:id', async (c) => {
+  const userId = c.get('userId');
+  const deviceId = c.req.param('id');
+
+  try {
+    const deletedDevice = await db.delete(schema.brewDevicesTable)
+      .where(and(eq(schema.brewDevicesTable.id, deviceId), eq(schema.brewDevicesTable.userId, userId))) // Ensure user owns the device
+      .returning({ id: schema.brewDevicesTable.id }); // Return the id of the deleted item
+
+    if (deletedDevice.length === 0) {
+      return c.json({ message: 'Brew device not found or delete failed' }, 404);
+    }
+    return c.json({ message: 'Brew device deleted successfully' }); // Use 200 OK or 204 No Content
+  } catch (error) {
+    // Handle potential foreign key constraint errors if brews reference this device
+    console.error('Error deleting brew device:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// Mount the brew device routes under the main app
+app.route('/brew-devices', brewDeviceRoutes);
+
+// --- Grinders API Routes ---
+const grinderRoutes = new Hono<HonoEnv>();
+
+// Apply auth middleware to all grinder routes
+grinderRoutes.use('*', authMiddleware);
+
+// GET /grinders - List all grinders for the user
+grinderRoutes.get('/', async (c) => {
+  const userId = c.get('userId');
+  try {
+    const grinders = await db.select()
+      .from(schema.grindersTable)
+      .where(eq(schema.grindersTable.userId, userId))
+      .orderBy(schema.grindersTable.createdAt);
+    return c.json(grinders);
+  } catch (error) {
+    console.error('Error fetching grinders:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// POST /grinders - Create a new grinder
+grinderRoutes.post('/', async (c) => {
+  const userId = c.get('userId');
+  const { name, type, notes } = await c.req.json();
+
+  if (!name || typeof name !== 'string') {
+    return c.json({ message: 'Grinder name is required' }, 400);
+  }
+
+  try {
+    const newGrinder = await db.insert(schema.grindersTable)
+      .values({
+        userId: userId,
+        name: name,
+        type: type || null,
+        notes: notes || null,
+      })
+      .returning();
+      
+    if (newGrinder.length === 0) {
+        throw new Error('Failed to create grinder.')
+    }
+    return c.json(newGrinder[0], 201);
+  } catch (error) {
+    console.error('Error creating grinder:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// PUT /grinders/:id - Update an existing grinder
+grinderRoutes.put('/:id', async (c) => {
+  const userId = c.get('userId');
+  const grinderId = c.req.param('id');
+  const { name, type, notes } = await c.req.json();
+
+  if (!name || typeof name !== 'string') {
+    return c.json({ message: 'Grinder name is required' }, 400);
+  }
+
+  try {
+    const updatedGrinder = await db.update(schema.grindersTable)
+      .set({
+        name: name,
+        type: type || null,
+        notes: notes || null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(schema.grindersTable.id, grinderId), eq(schema.grindersTable.userId, userId)))
+      .returning();
+
+    if (updatedGrinder.length === 0) {
+      return c.json({ message: 'Grinder not found or update failed' }, 404);
+    }
+    return c.json(updatedGrinder[0]);
+  } catch (error) {
+    console.error('Error updating grinder:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// DELETE /grinders/:id - Delete a grinder
+grinderRoutes.delete('/:id', async (c) => {
+  const userId = c.get('userId');
+  const grinderId = c.req.param('id');
+
+  try {
+    const deletedGrinder = await db.delete(schema.grindersTable)
+      .where(and(eq(schema.grindersTable.id, grinderId), eq(schema.grindersTable.userId, userId)))
+      .returning({ id: schema.grindersTable.id });
+
+    if (deletedGrinder.length === 0) {
+      return c.json({ message: 'Grinder not found or delete failed' }, 404);
+    }
+    return c.json({ message: 'Grinder deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting grinder:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// Mount the grinder routes under the main app
+app.route('/grinders', grinderRoutes);
+// --- End Grinders API Routes ---
+
+// --- User Settings API Routes ---
+const settingsRoutes = new Hono<HonoEnv>();
+
+// Apply auth middleware
+settingsRoutes.use('*', authMiddleware);
+
+// GET /settings - Get user default device/grinder
+settingsRoutes.get('/', async (c) => {
+  const userId = c.get('userId');
+  try {
+    const settings = await db.select({
+        defaultBrewDeviceId: schema.userSettingsTable.defaultBrewDeviceId,
+        defaultGrinderId: schema.userSettingsTable.defaultGrinderId
+      })
+      .from(schema.userSettingsTable)
+      .where(eq(schema.userSettingsTable.userId, userId))
+      .limit(1);
+
+    if (settings.length > 0) {
+      return c.json(settings[0]);
+    } else {
+      // Return defaults if no settings found for the user
+      return c.json({ defaultBrewDeviceId: null, defaultGrinderId: null });
+    }
+  } catch (error) {
+    console.error('Error fetching user settings:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// PUT /settings - Update or create user default device/grinder
+settingsRoutes.put('/', async (c) => {
+  const userId = c.get('userId');
+  const { defaultBrewDeviceId, defaultGrinderId } = await c.req.json();
+
+  // Basic validation (could add check if IDs actually exist in respective tables)
+  if (defaultBrewDeviceId !== null && typeof defaultBrewDeviceId !== 'string') {
+    return c.json({ message: 'Invalid format for defaultBrewDeviceId' }, 400);
+  }
+   if (defaultGrinderId !== null && typeof defaultGrinderId !== 'string') {
+    return c.json({ message: 'Invalid format for defaultGrinderId' }, 400);
+  }
+
+  try {
+    const upsertedSettings = await db.insert(schema.userSettingsTable)
+      .values({
+        userId: userId,
+        defaultBrewDeviceId: defaultBrewDeviceId || null,
+        defaultGrinderId: defaultGrinderId || null,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({ 
+        target: schema.userSettingsTable.userId, // Specify the conflict target (the primary key)
+        set: { // Specify what to update on conflict
+          defaultBrewDeviceId: defaultBrewDeviceId || null,
+          defaultGrinderId: defaultGrinderId || null,
+          updatedAt: new Date(),
+        }
+       })
+      .returning({
+        userId: schema.userSettingsTable.userId,
+        defaultBrewDeviceId: schema.userSettingsTable.defaultBrewDeviceId,
+        defaultGrinderId: schema.userSettingsTable.defaultGrinderId
+      });
+      
+    if (upsertedSettings.length === 0) {
+        throw new Error('Failed to update/create user settings.')
+    }
+
+    return c.json(upsertedSettings[0]);
+  } catch (error) {
+    console.error('Error updating user settings:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// Mount the settings routes under the main app
+app.route('/settings', settingsRoutes);
+// --- End User Settings API Routes ---
+
+// --- Beans API Routes ---
+const beansRoutes = new Hono<HonoEnv>();
+
+// Apply auth middleware
+beansRoutes.use('*', authMiddleware);
+
+// GET /beans - List all beans for the user
+beansRoutes.get('/', async (c) => {
+  const userId = c.get('userId');
+  try {
+    const beans = await db.select()
+      .from(schema.beansTable)
+      .where(eq(schema.beansTable.userId, userId))
+      .orderBy(schema.beansTable.createdAt); // Or by name, roast date etc.
+    return c.json(beans);
+  } catch (error) {
+    console.error('Error fetching beans:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// POST /beans - Create a new bean
+beansRoutes.post('/', async (c) => {
+  const userId = c.get('userId');
+  const body = await c.req.json();
+
+  // Basic validation
+  if (!body.name || typeof body.name !== 'string') {
+    return c.json({ message: 'Bean name is required' }, 400);
+  }
+  // Add more validation as needed (e.g., for roastedDate format)
+
+  try {
+    const newBean = await db.insert(schema.beansTable)
+      .values({
+        userId: userId,
+        name: body.name,
+        roaster: body.roaster || null,
+        origin: body.origin || null,
+        process: body.process || null,
+        roastLevel: body.roastLevel || null,
+        roastedDate: body.roastedDate ? new Date(body.roastedDate) : null,
+        flavorNotes: body.flavorNotes || null,
+        imageUrl: body.imageUrl || null,
+      })
+      .returning();
+      
+    if (newBean.length === 0) {
+        throw new Error('Failed to create bean.');
+    }
+    return c.json(newBean[0], 201);
+  } catch (error) {
+    console.error('Error creating bean:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// GET /beans/:id - Get a specific bean
+beansRoutes.get('/:id', async (c) => {
+  const userId = c.get('userId');
+  const beanId = c.req.param('id');
+  try {
+    const bean = await db.select()
+      .from(schema.beansTable)
+      .where(and(eq(schema.beansTable.id, beanId), eq(schema.beansTable.userId, userId)))
+      .limit(1);
+
+    if (bean.length === 0) {
+        return c.json({ message: 'Bean not found' }, 404);
+    }
+    return c.json(bean[0]);
+  } catch (error) {
+    console.error('Error fetching bean:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// PUT /beans/:id - Update an existing bean
+beansRoutes.put('/:id', async (c) => {
+  const userId = c.get('userId');
+  const beanId = c.req.param('id');
+  const body = await c.req.json();
+
+  if (!body.name || typeof body.name !== 'string') {
+    return c.json({ message: 'Bean name is required' }, 400);
+  }
+  // Add more validation
+
+  try {
+    const updatedBean = await db.update(schema.beansTable)
+      .set({
+        name: body.name,
+        roaster: body.roaster || null,
+        origin: body.origin || null,
+        process: body.process || null,
+        roastLevel: body.roastLevel || null,
+        roastedDate: body.roastedDate ? new Date(body.roastedDate) : null,
+        flavorNotes: body.flavorNotes || null,
+        imageUrl: body.imageUrl || null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(schema.beansTable.id, beanId), eq(schema.beansTable.userId, userId)))
+      .returning();
+
+    if (updatedBean.length === 0) {
+      return c.json({ message: 'Bean not found or update failed' }, 404);
+    }
+    return c.json(updatedBean[0]);
+  } catch (error) {
+    console.error('Error updating bean:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// DELETE /beans/:id - Delete a bean
+beansRoutes.delete('/:id', async (c) => {
+  const userId = c.get('userId');
+  const beanId = c.req.param('id');
+
+  try {
+    // Consider implications: deleting a bean might require deleting associated brews
+    // depending on foreign key constraints (ON DELETE CASCADE was set in schema)
+    const deletedBean = await db.delete(schema.beansTable)
+      .where(and(eq(schema.beansTable.id, beanId), eq(schema.beansTable.userId, userId)))
+      .returning({ id: schema.beansTable.id });
+
+    if (deletedBean.length === 0) {
+      return c.json({ message: 'Bean not found or delete failed' }, 404);
+    }
+    // Deleting the bean will cascade and delete related brews due to schema FK constraint
+    return c.json({ message: 'Bean (and associated brews) deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting bean:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// Mount the beans routes under the main app
+app.route('/beans', beansRoutes);
+// --- End Beans API Routes ---
+
+// --- Brews API Routes ---
+const brewsRoutes = new Hono<HonoEnv>();
+
+// Apply auth middleware
+brewsRoutes.use('*', authMiddleware);
+
+// GET /brews - List brews for the user, optionally filtered by beanId
+brewsRoutes.get('/', async (c) => {
+  const userId = c.get('userId');
+  const beanId = c.req.query('beanId'); // Get optional beanId query param
+
+  try {
+    // Build conditions array
+    const conditions = [eq(schema.brewsTable.userId, userId)];
+    if (beanId) {
+      conditions.push(eq(schema.brewsTable.beanId, beanId));
+    }
+
+    // Apply conditions with and()
+    const brews = await db.select()
+      .from(schema.brewsTable)
+      .where(and(...conditions)) // Use spread operator for conditions
+      .orderBy(desc(schema.brewsTable.timestamp)); // Order by most recent
+
+    return c.json(brews);
+  } catch (error) {
+    console.error('Error fetching brews:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// POST /brews - Create a new brew log
+brewsRoutes.post('/', async (c) => {
+  const userId = c.get('userId');
+  const body = await c.req.json();
+
+  // --- Validation --- 
+  if (!body.beanId || typeof body.beanId !== 'string') {
+    return c.json({ message: 'beanId is required' }, 400);
+  }
+  if (body.timestamp === undefined || typeof body.timestamp !== 'number') {
+    // Assuming timestamp is sent as Unix epoch ms from client
+    return c.json({ message: 'timestamp (number) is required' }, 400);
+  }
+  // Add validation for other required fields like steepTime, rating etc. if needed
+  // Check if referenced beanId, brewDeviceId, grinderId exist and belong to the user? (optional, adds complexity)
+
+  try {
+    const newBrew = await db.insert(schema.brewsTable)
+      .values({
+        userId: userId,
+        beanId: body.beanId,
+        brewDeviceId: body.brewDeviceId || null,
+        grinderId: body.grinderId || null,
+        timestamp: new Date(body.timestamp), // Convert epoch ms to Date object
+        steepTimeSeconds: body.steepTimeSeconds || null,
+        grindSize: body.grindSize || null,
+        waterTempCelsius: body.waterTempCelsius || null,
+        useBloom: body.useBloom !== undefined ? body.useBloom : null,
+        bloomTimeSeconds: body.bloomTimeSeconds || null,
+        notes: body.notes || null,
+        rating: body.rating || null,
+      })
+      .returning();
+      
+    if (newBrew.length === 0) {
+        throw new Error('Failed to create brew log.');
+    }
+    return c.json(newBrew[0], 201);
+  } catch (error) {
+    console.error('Error creating brew log:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// GET /brews/:id - Get a specific brew log
+brewsRoutes.get('/:id', async (c) => {
+  const userId = c.get('userId');
+  const brewId = c.req.param('id');
+  try {
+    const brew = await db.select()
+      .from(schema.brewsTable)
+      .where(and(eq(schema.brewsTable.id, brewId), eq(schema.brewsTable.userId, userId)))
+      .limit(1);
+
+    if (brew.length === 0) {
+        return c.json({ message: 'Brew log not found' }, 404);
+    }
+    return c.json(brew[0]);
+  } catch (error) {
+    console.error('Error fetching brew log:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// PUT /brews/:id - Update an existing brew log
+brewsRoutes.put('/:id', async (c) => {
+  const userId = c.get('userId');
+  const brewId = c.req.param('id');
+  const body = await c.req.json();
+
+  // Add validation as needed
+  if (body.timestamp === undefined || typeof body.timestamp !== 'number') {
+     return c.json({ message: 'timestamp (number) is required' }, 400);
+  }
+
+  try {
+    const updatedBrew = await db.update(schema.brewsTable)
+      .set({
+        // Cannot update beanId or userId
+        brewDeviceId: body.brewDeviceId || null,
+        grinderId: body.grinderId || null,
+        timestamp: new Date(body.timestamp), // Convert epoch ms to Date object
+        steepTimeSeconds: body.steepTimeSeconds || null,
+        grindSize: body.grindSize || null,
+        waterTempCelsius: body.waterTempCelsius || null,
+        useBloom: body.useBloom !== undefined ? body.useBloom : null,
+        bloomTimeSeconds: body.bloomTimeSeconds || null,
+        notes: body.notes || null,
+        rating: body.rating || null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(schema.brewsTable.id, brewId), eq(schema.brewsTable.userId, userId)))
+      .returning();
+
+    if (updatedBrew.length === 0) {
+      return c.json({ message: 'Brew log not found or update failed' }, 404);
+    }
+    return c.json(updatedBrew[0]);
+  } catch (error) {
+    console.error('Error updating brew log:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// DELETE /brews/:id - Delete a brew log
+brewsRoutes.delete('/:id', async (c) => {
+  const userId = c.get('userId');
+  const brewId = c.req.param('id');
+
+  try {
+    const deletedBrew = await db.delete(schema.brewsTable)
+      .where(and(eq(schema.brewsTable.id, brewId), eq(schema.brewsTable.userId, userId)))
+      .returning({ id: schema.brewsTable.id });
+
+    if (deletedBrew.length === 0) {
+      return c.json({ message: 'Brew log not found or delete failed' }, 404);
+    }
+    return c.json({ message: 'Brew log deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting brew log:', error);
+    return c.json({ message: 'Internal Server Error' }, 500);
+  }
+});
+
+// Mount the brews routes under the main app
+app.route('/brews', brewsRoutes);
+// --- End Brews API Routes ---
 
 export { app }; // <-- Add named export for the Hono instance
 export const runtime = 'edge';

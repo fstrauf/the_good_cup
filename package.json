@@ -41,6 +41,7 @@
     "expo-navigation-bar": "~4.0.7",
     "expo-random": "^14.0.1",
     "expo-router": "~4.0.16",
+    "expo-secure-store": "^14.0.1",
     "expo-splash-screen": "~0.29.24",
     "expo-status-bar": "~2.0.1",
     "expo-symbols": "^0.2.2",
@@ -66,6 +67,8 @@
   "devDependencies": {
     "@babel/core": "^7.26.0",
     "@types/react": "~18.3.12",
+    "dotenv": "^16.5.0",
+    "drizzle-kit": "^0.31.0",
     "typescript": "^5.3.3",
     "vercel": "^41.6.0"
   },
