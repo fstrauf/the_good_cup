@@ -10,17 +10,20 @@ import {
   Text as RNText,
   Platform,
   TextInput,
+  FlatList,
+  RefreshControl,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { getBrewSuggestions, generateGenericBrewSuggestion } from "../../lib/openai";
 import type { BrewSuggestionResponse, Grinder } from "../../lib/openai";
 import { Button } from "../../components/ui/button";
 import { Text } from "../../components/ui/text";
-import { Image as LucideImage, X, Coffee, XCircle, Mountain } from "lucide-react-native";
+import { Image as LucideImage, X, Coffee, XCircle, Mountain, Trash2, Edit } from "lucide-react-native";
 import dayjs from 'dayjs';
 import { useAuth } from "../../lib/auth";
+import relativeTime from 'dayjs/plugin/relativeTime';
+dayjs.extend(relativeTime);
 
 // --- Tailwind --- 
 import resolveConfig from 'tailwindcss/resolveConfig';
@@ -35,18 +38,6 @@ const BEANS_STORAGE_KEY = "@GoodCup:beans";
 const BREWS_STORAGE_KEY = "@GoodCup:brews";
 const BREW_DEVICES_STORAGE_KEY = '@GoodCup:brewDevices';
 const DEFAULT_BREW_DEVICE_KEY = '@GoodCup:defaultBrewDevice';
-
-// Bean interface
-interface Bean {
-  id: string;
-  name: string;
-  roastLevel: string;
-  flavorNotes: string[];
-  description: string;
-  photo?: string; // Base64 encoded image
-  timestamp: number;
-  roastedDate?: number;
-}
 
 // Simplified Brew interface for extracting bean info
 interface Brew {
@@ -132,6 +123,10 @@ const SuggestedParameters: React.FC<{ response: BrewSuggestionResponse }> = ({ r
   );
 };
 
+// Import API functions and types
+import * as api from '../../lib/api';
+import { Bean } from '../../lib/api'; // Import Bean interface
+
 export default function BeansScreen() {
   const insets = useSafeAreaInsets();
   console.log('Bottom Inset:', insets.bottom);
@@ -139,7 +134,9 @@ export default function BeansScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const [beans, setBeans] = useState<Bean[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [editingBean, setEditingBean] = useState<Bean | null>(null);
@@ -147,9 +144,11 @@ export default function BeansScreen() {
     name: "",
     roastLevel: "",
     flavorNotes: [],
-    description: "",
-    photo: undefined,
     roastedDate: undefined,
+    roaster: "",
+    origin: "", 
+    process: "",
+    imageUrl: undefined
   });
   const [suggestionModalVisible, setSuggestionModalVisible] = useState(false);
   const [selectedBeanForSuggestion, setSelectedBeanForSuggestion] = useState<Bean | null>(null);
@@ -164,542 +163,177 @@ export default function BeansScreen() {
   const [suggestionComment, setSuggestionComment] = useState("");
   // <<< End New State >>>
 
-  const loadBeans = useCallback(async () => {
+  const loadBeans = useCallback(async (isRefreshing = false) => {
+    if (!isRefreshing) setLoading(true);
+    setRefreshing(isRefreshing);
+    setError(null);
     try {
-      const storedBeans = await AsyncStorage.getItem(BEANS_STORAGE_KEY);
-      let beansArray: Bean[] = [];
-      if (storedBeans) {
-        beansArray = JSON.parse(storedBeans);
-        beansArray.sort((a, b) => b.timestamp - a.timestamp);
-      }
-      setBeans(beansArray);
-    } catch (error) {
-      console.error("Error loading beans:", error);
-      Alert.alert("Error", "Failed to load beans.");
+      const fetchedBeans = await api.getBeans(); // Use imported api
+      setBeans(fetchedBeans);
+    } catch (e: any) {
+      console.error('Failed to load beans from API:', e);
+      setError(`Failed to load beans: ${e.message || 'Unknown error'}`);
+      setBeans([]); // Clear beans on error
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
   useFocusEffect(
     useCallback(() => {
       loadBeans();
     }, [loadBeans])
   );
 
-  const deleteBean = async (id: string) => {
-    Alert.alert("Confirm Delete", "Are you sure you want to delete this bean?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          const updatedBeans = beans.filter((bean) => bean.id !== id);
-          try {
-            const sortedBeans = updatedBeans.sort((a, b) => b.timestamp - a.timestamp);
-            await AsyncStorage.setItem(BEANS_STORAGE_KEY, JSON.stringify(sortedBeans));
-            setBeans(sortedBeans);
-          } catch (error) {
-             console.error("Error saving beans after delete:", error);
-             Alert.alert("Error", "Failed to save changes after deleting bean.");
-          }
+  const onRefresh = useCallback(() => {
+    loadBeans(true); // Pass true to indicate refresh
+  }, [loadBeans]);
+
+  const handleAddBean = () => {
+    router.push('/add-edit-bean'); // Navigate to add/edit screen
+  };
+
+  const handleEditBean = (bean: Bean) => {
+    router.push({ pathname: '/add-edit-bean', params: { beanData: JSON.stringify(bean) } });
+  };
+
+  const handleBeanPress = (bean: Bean) => {
+    router.push({ pathname: '/[beanId]/brews', params: { beanName: bean.name, beanId: bean.id } });
+  };
+
+  const handleDeleteBean = async (id: string, name: string) => {
+    Alert.alert(
+      `Delete ${name}?`,
+      "Are you sure you want to delete this bean and all its associated brews? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setLoading(true); // Show loading state
+            setError(null);
+            try {
+              await api.deleteBean(id); // Use imported api
+              setBeans(prevBeans => prevBeans.filter(bean => bean.id !== id)); // Update state optimistically
+              Alert.alert('Success', `Bean "${name}" deleted successfully.`);
+            } catch (e: any) {
+              console.error('Failed to delete bean:', e);
+              setError(`Failed to delete bean: ${e.message || 'Unknown error'}`);
+              Alert.alert('Error', `Failed to delete bean: ${e.message || 'Unknown error'}`);
+            } finally {
+              setLoading(false);
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
-  const formatDate = (timestamp?: number): string => {
-    if (!timestamp) return 'N/A';
+  // Calculate days since roast date (using imported Bean type)
+  const calculateDaysSinceRoast = (roastDate: string | null | undefined): string | null => {
+    if (!roastDate) return null;
     try {
-      return dayjs(timestamp).format('MMM D, YYYY');
+        const roastDayjs = dayjs(roastDate);
+        if (!roastDayjs.isValid()) return null;
+        const days = dayjs().diff(roastDayjs, 'day');
+        if (days < 0) return 'Roast date in future?'; 
+        if (days === 0) return 'Roasted today';
+        if (days === 1) return 'Roasted yesterday';
+        return `Roasted ${days} days ago`;
     } catch (e) {
-      console.error("Error formatting date with dayjs:", e);
-      return 'Invalid Date';
+        console.error("Error calculating days since roast:", e, "Input:", roastDate);
+        return null; 
     }
   };
 
-  const fetchSuggestions = async (bean: Bean, userComment?: string) => {
-    console.log(`[fetchSuggestions] Started for bean: ${bean.name}, Comment: ${userComment || 'None'}`);
-    setSuggestionModalVisible(true);
-    setGettingSuggestion(true);
-    setNavigationData(null);
-    setModalSuggestionText("");
-
-    try {
-      console.log(`[fetchSuggestions] Getting stored brews for ${bean.name}...`);
-      const storedBrews = await AsyncStorage.getItem(BREWS_STORAGE_KEY);
-      console.log(`[fetchSuggestions] Stored brews retrieved: ${!!storedBrews}`);
-      let suggestionResponse: BrewSuggestionResponse | null = null;
-      let hasBrewHistory = false;
-      if (storedBrews) {
-        console.log(`[fetchSuggestions] Processing stored brews...`);
-        const brews: Brew[] = JSON.parse(storedBrews);
-        const beanBrews = brews.filter((brew) => brew.beanName === bean.name);
-
-        const brewsWithDate = beanBrews.map(brew => ({
-          ...brew,
-          roastedDate: brew.roastedDate ?? bean.roastedDate
-        }));
-
-        if (brewsWithDate.length > 0) {
-          console.log(
-            `[fetchSuggestions] Found ${brewsWithDate.length} brews for ${bean.name}. Attempting suggestion based on history.`
-          );
-          hasBrewHistory = true;
-          const sortedBrews = brewsWithDate.sort((a, b) => b.rating - a.rating);
-          const bestBrew = sortedBrews[0];
-          const currentGrinderId = bestBrew.grinder;
-          let currentGrinderName: string | undefined = undefined;
-          if (currentGrinderId) {
-            const storedGrinders = await AsyncStorage.getItem("@GoodCup:grinders");
-            const grinders: Grinder[] = storedGrinders ? JSON.parse(storedGrinders) : [];
-            currentGrinderName = grinders.find((g) => g.id === currentGrinderId)?.name;
-          }
-          console.log(
-            `[fetchSuggestions] Grinder context: ID=${currentGrinderId}, Name=${currentGrinderName}`
-          );
-          try {
-            console.log(`[fetchSuggestions] Calling getBrewSuggestions API...`);
-            suggestionResponse = await getBrewSuggestions(
-              bestBrew,
-              sortedBrews,
-              bean.name,
-              currentGrinderName,
-              token,
-              userComment
-            );
-            console.log(
-              "[fetchSuggestions] Successfully generated suggestion from brew history:",
-              suggestionResponse?.suggestionText?.substring(0, 50) + "..."
-            );
-          } catch (error: any) {
-            console.error(
-              "[fetchSuggestions] Error getting brew suggestions from history:",
-              error.message || error
-            );
-            let errorMessage = "Error getting brew suggestions based on history. Please try again later.";
-            if (error.message?.includes("API key")) {
-              errorMessage = "OpenAI API key not found or invalid. Please check your settings.";
-            } else if (error.message?.includes("internet connection")) {
-              errorMessage = "No internet connection detected. Please check your network and try again.";
-            } else if (error.message?.includes("timeout")) {
-              errorMessage = "The request to OpenAI timed out. Please try again later.";
-            } else if (error.message?.includes("Unauthorized")) {
-              errorMessage = "Your session has expired. Please sign in again.";
-              Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
-              router.replace("/login");
-            }
-            setModalSuggestionText(errorMessage);
-            setNavigationData(null);
-          }
-        }
-      }
-
-      if (!hasBrewHistory || !suggestionResponse) {
-        console.log(
-          `[fetchSuggestions] No history or history suggestion failed. Attempting generic suggestion.`
-        );
-        try {
-          let brewMethod = 'Pour Over';
-          const defaultDeviceId = await AsyncStorage.getItem(DEFAULT_BREW_DEVICE_KEY);
-          if (defaultDeviceId) {
-            const storedDevices = await AsyncStorage.getItem(BREW_DEVICES_STORAGE_KEY);
-            const devices: BrewDevice[] = storedDevices ? JSON.parse(storedDevices) : [];
-            const defaultDevice = devices.find(d => d.id === defaultDeviceId);
-            if (defaultDevice) {
-              brewMethod = defaultDevice.name; 
-              console.log(`[fetchSuggestions] Using default brew method: ${brewMethod}`);
-            }
-          } else {
-             console.log(`[fetchSuggestions] No default brew method set, using: ${brewMethod}`);
-          }
-
-          const roastLevelLabel = bean.roastLevel;
-          const beanWithMethod = {
-            ...bean,
-            roastLevel: roastLevelLabel,
-            roastedDate: bean.roastedDate || undefined,
-            brewMethod: brewMethod,
-          };
-          console.log(`[fetchSuggestions] Calling generateGenericBrewSuggestion API with method: ${brewMethod}...`);
-          suggestionResponse = await generateGenericBrewSuggestion(
-            beanWithMethod,
-            token,
-            userComment
-          );
-          console.log(
-            "[fetchSuggestions] Successfully generated generic suggestion:",
-            suggestionResponse?.suggestionText?.substring(0, 50) + "..."
-          );
-        } catch (error: any) {
-          console.error("[fetchSuggestions] Error generating generic suggestion:", error.message || error);
-          let errorMessage = "Error generating suggestions. Please try again later.";
-          if (error.message?.includes("API key")) {
-            errorMessage = "OpenAI API key not found or invalid. Please check your settings.";
-          } else if (error.message?.includes("internet connection")) {
-            errorMessage = "No internet connection detected. Please check your network and try again.";
-          } else if (error.message?.includes("timeout")) {
-            errorMessage = "The request to OpenAI timed out. Please try again later.";
-          } else if (error.message?.includes("Unauthorized")) {
-            errorMessage = "Your session has expired. Please sign in again.";
-            Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
-            router.replace("/login");
-          }
-          setModalSuggestionText(errorMessage);
-          setNavigationData(null);
-        }
-      }
-
-      if (suggestionResponse) {
-        console.log("[fetchSuggestions] Suggestion response obtained:", suggestionResponse);
-        setModalSuggestionText(suggestionResponse.suggestionText || "No suggestion text provided.");
-        setNavigationData({ bean: bean, suggestionResponse: suggestionResponse });
-      } else if (!modalSuggestionText) {
-        console.log("[fetchSuggestions] No valid suggestion obtained after parsing attempts.");
-        setModalSuggestionText("Could not generate or parse brewing suggestions. Please try again later.");
-        setNavigationData(null);
-      }
-    } catch (error: any) {
-      console.error("[fetchSuggestions] Error in main try block:", error);
-      let errorMessage = "An unexpected error occurred while generating suggestions. Please try again later.";
-      if (error.message?.includes("API key")) {
-        errorMessage = "OpenAI API key not found or invalid. Please check your settings.";
-      } else if (error.message?.includes("internet connection")) {
-        errorMessage = "No internet connection detected. Please check your network and try again.";
-      } else if (error.message?.includes("timeout")) {
-        errorMessage = "The request to OpenAI timed out. Please try again later.";
-      } else if (error.message?.includes("parse")) {
-        errorMessage = "Could not understand the suggestion format received. Please try again.";
-      } else if (error.message?.includes("Unauthorized")) {
-        errorMessage = "Your session has expired. Please sign in again.";
-        Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
-        router.replace("/login");
-      }
-      setModalSuggestionText(errorMessage);
-      setNavigationData(null);
-    } finally {
-      console.log("[fetchSuggestions] Executing finally block.");
-      setGettingSuggestion(false);
-    }
-  };
-
-  const getOptimalBrewSuggestions = async (bean: Bean) => {
-    setSelectedBeanForSuggestion(bean);
-    setSuggestionComment("");
-    setCommentModalVisible(true);
-  };
-
-  return (
-    <SafeAreaView className="flex-1 bg-soft-off-white" edges={["top", "left", "right"]}>
-      <View className="flex-1 bg-soft-off-white">
-        <View className="mx-3 mt-3 mb-2 rounded-xl p-4 bg-soft-off-white border border-pale-gray shadow-sm">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-2xl font-semibold text-charcoal">Coffee Beans</Text>
-            <Button
-              variant="default"
-              size="sm"
-              onPress={() => router.push("/add-edit-bean")}
-              className={"bg-muted-sage-green"}
+  // Render item for FlatList (uses imported Bean type)
+  const renderBeanItem = ({ item }: { item: Bean }) => {
+    const daysSinceRoast = calculateDaysSinceRoast(item.roastedDate);
+    
+    return (
+      <TouchableOpacity 
+        onPress={() => handleBeanPress(item)} 
+        className="bg-white rounded-lg p-4 mb-3 shadow-sm border border-pale-gray flex-row justify-between items-center"
+        activeOpacity={0.7}
+        disabled={loading} // Disable interaction while loading
+      >
+        <View className="flex-1 mr-3">
+          <Text className="text-lg font-semibold text-charcoal mb-1">{item.name}</Text>
+          {item.roaster && <Text className="text-sm text-cool-gray-green">by {item.roaster}</Text>}
+          {item.origin && <Text className="text-sm text-cool-gray-green">from {item.origin}</Text>}
+          {daysSinceRoast && <Text className="text-xs text-stone-500 mt-1.5 italic">{daysSinceRoast}</Text>}
+        </View>
+        <View className="flex-col justify-between items-end h-full">
+            <TouchableOpacity 
+                onPress={(e) => { e.stopPropagation(); handleEditBean(item); }}
+                className="p-1 mb-2" // Add spacing
+                hitSlop={{ top: 10, bottom: 5, left: 10, right: 10 }}
+                disabled={loading}
             >
-              <Text className={"text-white font-medium"}>
-                Add Bean
-              </Text>
-            </Button>
-          </View>
+                <Edit size={20} color={themeColors['cool-gray-green']} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+                onPress={(e) => { e.stopPropagation(); handleDeleteBean(item.id, item.name); }}
+                className="p-1" 
+                hitSlop={{ top: 5, bottom: 10, left: 10, right: 10 }}
+                disabled={loading}
+            >
+                <Trash2 size={20} color={themeColors['cool-gray-green']} />
+            </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading && !refreshing) {
+    return (
+      <SafeAreaView className="flex-1 bg-soft-off-white justify-center items-center" edges={['top', 'left', 'right']}>
+        <ActivityIndicator size="large" color={themeColors['cool-gray-green']} />
+        <Text className="mt-2 text-cool-gray-green">Loading Beans...</Text>
+      </SafeAreaView>
+    );
+  }
+  
+  return (
+    <SafeAreaView className="flex-1 bg-soft-off-white" edges={['top', 'left', 'right']}>
+      <View className="flex-1 px-4 pt-4 bg-soft-off-white">
+        <View className="flex-row justify-between items-center mb-4">
+          <Text className="text-2xl font-semibold text-charcoal">My Beans</Text>
+          <Button 
+            size="sm" 
+            onPress={handleAddBean} 
+            className="bg-muted-sage-green"
+            disabled={loading} // Disable if loading
+          >
+            <Text className="text-white font-semibold">Add Bean</Text>
+          </Button>
         </View>
 
-        <ScrollView 
-          className="flex-1 px-3 pt-2" 
-          contentContainerStyle={{ paddingBottom: insets.bottom + 42 }}
-          showsVerticalScrollIndicator={false}
-        >
-          {beans.length === 0 ? (
-            <View className="mx-0 my-4 rounded-xl p-6 items-center bg-soft-off-white border border-pale-gray">
-              <Coffee size={40} color={themeColors['cool-gray-green']} />
-              <Text className="text-lg font-semibold text-charcoal mt-3 mb-2">No beans added yet</Text>
-              <Text className="text-sm text-cool-gray-green text-center">
-                Add your first coffee bean using the 'Add Bean' button above.
-              </Text>
+        {error && (
+            <View className="bg-red-100 border border-red-300 p-3 rounded-md mb-4">
+                <Text className="text-red-700 text-center">{error}</Text>
             </View>
-          ) : (
-            beans.map((bean) => (
-              <View
-                key={bean.id}
-                className="mx-0 mb-4 rounded-xl p-0 bg-soft-off-white border border-pale-gray shadow-sm overflow-hidden"
-              >
-                <TouchableOpacity 
-                  activeOpacity={0.8} 
-                  onPress={() => router.push({ pathname: "/add-edit-bean", params: { beanId: bean.id }})}
-                >
-                  <View className="flex-row p-4">
-                    {bean.photo ? (
-                      <Image
-                        source={{ uri: bean.photo }}
-                        className="w-20 h-20 rounded-lg border border-pebble-gray"
-                      />
-                    ) : (
-                      <View className="w-20 h-20 rounded-lg bg-light-beige justify-center items-center border border-dashed border-pebble-gray">
-                        <Mountain size={30} color={themeColors['cool-gray-green']} />
-                      </View>
-                    )}
-                    <View className="flex-1 ml-4">
-                      <View className="flex-row justify-between items-start">
-                        <Text className="text-lg font-semibold text-charcoal flex-shrink mr-2" numberOfLines={2}>
-                          {bean.name}
-                        </Text>
-                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); deleteBean(bean.id); }} className="p-1 -mt-1 -mr-1">
-                          <XCircle size={22} color={themeColors['cool-gray-green']} />
-                        </TouchableOpacity>
-                      </View>
-                      <View className="h-px bg-pale-gray my-2" />
-                      <View className="flex-1">
-                        <Text className="text-sm text-charcoal mb-0.5">
-                          Roast: <Text className="font-medium">{bean.roastLevel || "Unknown"}</Text>
-                        </Text>
-                        {bean.flavorNotes && bean.flavorNotes.length > 0 && (
-                          <View className="mt-1.5">
-                            <Text className="text-sm text-charcoal mb-1">Flavor Notes:</Text>
-                            <View className="flex-row flex-wrap">
-                              {bean.flavorNotes.map((note: string, index: number) => (
-                                <View
-                                  key={index}
-                                  className="bg-mist-blue/50 px-2 py-0.5 rounded-full mr-1.5 mb-1.5 border border-mist-blue"
-                                >
-                                  <Text className="text-xs text-charcoal">{note.trim()}</Text>
-                                </View>
-                              ))}
-                            </View>
-                          </View>
-                        )}
-                        {bean.description && (
-                          <Text className="text-sm text-charcoal/80 mt-2 italic" numberOfLines={2}>
-                            {bean.description}
-                          </Text>
-                        )}
-                        {bean.roastedDate && (
-                          <Text className="text-sm text-charcoal/80 mt-1.5">
-                            Roasted: <Text className="font-medium">{formatDate(bean.roastedDate)}</Text>
-                          </Text>
-                        )}
-                        <Text className="text-xs text-cool-gray-green mt-2 text-right">
-                          Added: {formatDate(bean.timestamp)}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-                <View className="flex-row justify-around items-center mt-2 pt-3 pb-2 border-t border-pale-gray bg-light-beige/50">
-                  <TouchableOpacity
-                    className="flex-1 items-center px-1 py-1"
-                    onPress={() =>
-                      router.push({
-                        pathname: "/[beanId]/brew" as any,
-                        params: { 
-                          beanId: bean.id, 
-                          beanName: bean.name,
-                          roastedDate: bean.roastedDate ? bean.roastedDate.toString() : undefined
-                        },
-                      })
-                    }
-                  >
-                    <Image source={require("../../assets/images/brew.png")} style={{ width: 52, height: 52 }} />
-                    <Text className="text-xs text-center text-cool-gray-green mt-1 font-medium">Brew</Text>
-                  </TouchableOpacity>
-                  <View className="h-full w-px bg-pale-gray" />
-                  <TouchableOpacity
-                    className="flex-1 items-center px-1 py-1"
-                    onPress={() =>
-                      router.push({
-                        pathname: "/[beanId]/brews" as any,
-                        params: { beanId: bean.id, beanName: bean.name },
-                      })
-                    }
-                  >
-                    <Image source={require("../../assets/images/past_brews.png")} style={{ width: 52, height: 52 }} />
-                    <Text className="text-xs text-center text-cool-gray-green mt-1 font-medium">History</Text>
-                  </TouchableOpacity>
-                  <View className="h-full w-px bg-pale-gray" />
-                  <TouchableOpacity
-                    className="flex-1 items-center px-1 py-1"
-                    onPress={() => getOptimalBrewSuggestions(bean)}
-                  >
-                    <Image source={require("../../assets/images/suggest_brew.png")} style={{ width: 52, height: 52 }} />
-                    <Text className="text-xs text-center text-cool-gray-green mt-1 font-medium">Suggest</Text>
-                  </TouchableOpacity>
-                </View>
+        )}
+
+        <FlatList
+          data={beans}
+          renderItem={renderBeanItem}
+          keyExtractor={(item) => item.id}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={themeColors['cool-gray-green']} />
+          }
+          ListEmptyComponent={
+            !loading && !refreshing && beans.length === 0 ? (
+              <View className="flex-1 justify-center items-center mt-10">
+                <Text className="text-cool-gray-green text-center">No beans added yet. Tap 'Add Bean' to start!</Text>
               </View>
-            ))
-          )}
-        </ScrollView>
+            ) : null
+          }
+          contentContainerStyle={{ paddingBottom: 20 }}
+        />
       </View>
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={commentModalVisible}
-        onRequestClose={() => {
-          setCommentModalVisible(false);
-          setSelectedBeanForSuggestion(null);
-        }}
-      >
-        <View className="flex-1 justify-center items-center bg-charcoal/60 p-5">
-          <View className="w-full bg-soft-off-white rounded-2xl p-5 max-h-[85%] shadow-lg border border-pale-gray">
-            <View className="flex-row justify-between items-center mb-3">
-              <Text className="text-xl font-semibold text-charcoal flex-1 mr-2" numberOfLines={1}>
-                Add Comment? (Optional)
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setCommentModalVisible(false);
-                  setSelectedBeanForSuggestion(null);
-                }}
-                className="p-1"
-              >
-                <X size={24} color={themeColors['cool-gray-green']} />
-              </TouchableOpacity>
-            </View>
-
-            <Text className="text-sm text-cool-gray-green mb-3">
-              Add specific requests or context (e.g., "make it less bitter", "want brighter flavors").
-            </Text>
-
-            <TextInput
-              value={suggestionComment}
-              onChangeText={setSuggestionComment}
-              placeholder="Enter comment here..."
-              placeholderTextColor={themeColors['cool-gray-green']}
-              multiline={true}
-              numberOfLines={4}
-              textAlignVertical="top"
-              className="bg-white border border-pale-gray rounded-lg p-3 text-charcoal text-base mb-4"
-              style={{
-                  height: 100,
-              }}
-            />
-
-            <View className="flex-row justify-end space-x-3">
-              <Button
-                  variant="outline"
-                  size="default"
-                  className="bg-soft-off-white border-cool-gray-green"
-                  onPress={() => {
-                      setCommentModalVisible(false);
-                      setSelectedBeanForSuggestion(null);
-                  }}
-              >
-                  <Text className="text-charcoal font-bold">Cancel</Text>
-              </Button>
-              <Button
-                  variant="default"
-                  size="default"
-                  className="bg-muted-sage-green"
-                  onPress={() => {
-                    if (selectedBeanForSuggestion) {
-                      setCommentModalVisible(false);
-                      fetchSuggestions(selectedBeanForSuggestion, suggestionComment);
-                    } else {
-                      console.error("No bean selected when trying to fetch suggestions.");
-                      Alert.alert("Error", "Could not get suggestions. Please try again.");
-                      setCommentModalVisible(false);
-                    }
-                  }}
-              >
-                  <Text className="text-white font-bold">Get Suggestion</Text>
-              </Button>
-            </View>
-          </View>
-        </View>
-      </Modal>
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={suggestionModalVisible}
-        onRequestClose={() => setSuggestionModalVisible(false)}
-      >
-        <View className="flex-1 justify-center items-center bg-charcoal/60 p-5">
-          <View className="w-full bg-soft-off-white rounded-2xl p-5 max-h-[85%] shadow-lg border border-pale-gray">
-            <View className="flex-row justify-between items-center mb-1">
-              <Text className="text-xl font-semibold text-charcoal flex-1 mr-2" numberOfLines={1}>
-                {selectedBeanForSuggestion?.name || "Bean"} Suggestion
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setNavigationData(null);
-                  setModalSuggestionText("");
-                  setSuggestionModalVisible(false);
-                }}
-                className="p-1"
-              >
-                <X size={24} color={themeColors['cool-gray-green']} />
-              </TouchableOpacity>
-            </View>
-            
-            <View className="h-px bg-pale-gray my-3" />
-
-            <ScrollView style={{ maxHeight: 450 }} className="mb-4">
-              {gettingSuggestion ? (
-                <View className="items-center justify-center py-8">
-                  <ActivityIndicator size="large" color={themeColors['cool-gray-green']} />
-                  <Text className="mt-3 text-cool-gray-green">Analyzing brewing data...</Text>
-                </View>
-              ) : (
-                <View>
-                  <Text className="text-base leading-relaxed text-charcoal">
-                    {modalSuggestionText || "No suggestions available."}
-                  </Text>
-                  {!gettingSuggestion && navigationData?.suggestionResponse && (
-                    <SuggestedParameters response={navigationData.suggestionResponse} />
-                  )}
-                </View>
-              )}
-            </ScrollView>
-
-            {navigationData ? (
-              <Button
-                variant="default"
-                size="default"
-                className="bg-muted-sage-green"
-                onPress={() => {
-                  const { suggestionResponse, bean } = navigationData;
-                  const paramsToPass = {
-                      beanId: bean.id,
-                      beanName: bean.name,
-                      suggestion: suggestionResponse.suggestionText || "",
-                      grindSize: suggestionResponse.suggestedGrindSize || "",
-                      waterTemp: suggestionResponse.suggestedWaterTemp || "",
-                      steepTime: suggestionResponse.suggestedSteepTimeSeconds?.toString() || "",
-                      useBloom: suggestionResponse.suggestedUseBloom ? "true" : "false",
-                      bloomTime: suggestionResponse.suggestedBloomTimeSeconds?.toString() || "",
-                      fromSuggestion: "true",
-                      roastedDate: bean.roastedDate ? bean.roastedDate.toString() : undefined
-                  };
-                  try {
-                    router.push({ pathname: "/[beanId]/brew" as any, params: paramsToPass });
-                  } catch (e) {
-                    console.error("[Modal Button Press] Error during router.push:", e);
-                    Alert.alert("Navigation Error", "Could not navigate to the brew screen.");
-                  }
-                  setNavigationData(null);
-                  setSuggestionModalVisible(false);
-                  setModalSuggestionText("");
-                }}
-              >
-                <Text className="text-charcoal font-bold">Use Suggestion & Brew</Text>
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="default"
-                className="bg-soft-off-white border-cool-gray-green"
-                onPress={() => {
-                  setSuggestionModalVisible(false);
-                  setNavigationData(null);
-                  setModalSuggestionText("");
-                }}
-                disabled={gettingSuggestion}
-              >
-                <Text className="text-charcoal font-bold">Close</Text>
-              </Button>
-            )}
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }

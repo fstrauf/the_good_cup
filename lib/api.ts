@@ -35,6 +35,21 @@ export interface UserSettings {
   updatedAt?: string; // Optional because GET might return empty
 }
 
+export interface Bean { // Define and export Bean interface
+  id: string;
+  userId: string;
+  name: string;
+  roaster: string | null;
+  origin: string | null;
+  process: string | null;
+  roastLevel: string | null;
+  roastedDate: string | null; // Expecting ISO date string from backend
+  flavorNotes: string[] | null;
+  imageUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // --- Authentication Token ---
 export const getToken = async (): Promise<string | null> => {
   try {
@@ -168,6 +183,36 @@ export const updateUserSettings = async (data: { defaultBrewDeviceId?: string | 
   const response = await fetchWithAuth('/settings', {
     method: 'PUT',
     body: JSON.stringify(data),
+  });
+  return response.json();
+};
+
+// Beans
+export const getBeans = async (): Promise<Bean[]> => {
+  const response = await fetchWithAuth('/beans');
+  return response.json();
+};
+
+export const addBean = async (data: Partial<Omit<Bean, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>): Promise<Bean> => {
+   // Ensure required fields like name are present if necessary before calling
+  const response = await fetchWithAuth('/beans', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return response.json();
+};
+
+export const updateBean = async (id: string, data: Partial<Omit<Bean, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>): Promise<Bean> => {
+  const response = await fetchWithAuth(`/beans/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+  return response.json();
+};
+
+export const deleteBean = async (id: string): Promise<{ message: string }> => {
+  const response = await fetchWithAuth(`/beans/${id}`, {
+    method: 'DELETE',
   });
   return response.json();
 }; 
