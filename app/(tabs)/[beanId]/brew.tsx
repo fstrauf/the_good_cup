@@ -506,25 +506,7 @@ const HomeScreenComponent = () => {
                   keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "numeric"}
                 />
               </View>
-            )}
-
-            {/* Debug button for bloom toggle */}
-            <TouchableOpacity 
-              onPress={() => {
-                console.log("[Debug Button] Toggling useBloom from:", useBloom, "to:", !useBloom);
-                setUseBloom(!useBloom);
-              }}
-              style={{ 
-                backgroundColor: themeColors["pale-gray"],
-                padding: 5,
-                borderRadius: 5,
-                marginBottom: 10
-              }}
-            >
-              <Text style={{ color: themeColors["charcoal"], textAlign: 'center' }}>
-                Debug: Toggle Bloom ({useBloom ? "ON" : "OFF"})
-              </Text>
-            </TouchableOpacity>
+            )}            
 
             <View className="mb-4">
               <Text className="text-base font-medium text-charcoal mb-2">Grind Size</Text>

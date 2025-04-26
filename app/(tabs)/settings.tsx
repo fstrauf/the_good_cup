@@ -5,9 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Button } from '../../components/ui/button';
 import { Text } from '../../components/ui/text';
-import { Star, Trash2, Plus, LogOut } from 'lucide-react-native';
+import { Star, Trash2, Plus, LogOut, Info } from 'lucide-react-native';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../lib/auth';
+import { Link } from 'expo-router';
 
 // --- Tailwind --- 
 import resolveConfig from 'tailwindcss/resolveConfig';
@@ -526,6 +527,17 @@ export default function SettingsScreen() {
           
           {/* Divider */}
           <View className="h-px bg-pale-gray mb-6" />
+
+          {/* About Button */}
+          <Link href={"/about" as any} asChild>
+            <Button 
+              variant="outline"
+              className="flex-row items-center justify-center bg-light-beige border-pebble-gray mb-4"
+            >
+              <Info size={18} color={themeColors['charcoal']} className="mr-2" />
+              <Text className="text-charcoal font-semibold">About This App</Text>
+            </Button>
+          </Link>
 
           {/* Sign Out Button */}
           <Button 

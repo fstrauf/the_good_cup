@@ -18,7 +18,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.the-good-cup",
+      "bundleIdentifier": "com.straufprojects.thegoodcup",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }

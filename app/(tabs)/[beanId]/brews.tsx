@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { FlatList, View, RefreshControl, TouchableOpacity } from 'react-native';
+import { FlatList, View, RefreshControl, TouchableOpacity, Share, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,6 +9,14 @@ import { Brew } from '../../../lib/openai';
 import BeanNameHeader from '../../../components/BeanNameHeader';
 import dayjs from 'dayjs'; // Import dayjs
 import { Text as CustomText } from '../../../components/ui/text'; // Import custom Text component
+import { Share as ShareIcon } from 'lucide-react-native'; // Import ShareIcon
+import resolveConfig from 'tailwindcss/resolveConfig'; // Import resolveConfig
+import tailwindConfig from '../../../tailwind.config.js'; // Import tailwindConfig
+
+// --- Tailwind ---
+const fullConfig = resolveConfig(tailwindConfig);
+const themeColors = (fullConfig.theme?.colors ?? {}) as Record<string, string>;
+// --- End Tailwind ---
 
 // Storage keys
 const BREWS_STORAGE_KEY = '@GoodCup:brews';
@@ -106,68 +114,111 @@ export default function BrewsScreen() {
     console.log("Brew selected:", brew.id);
   };
 
+  // --- Share Functionality ---
+  const handleSharePress = async (item: Brew) => {
+    const roastAge = calculateAgeDays(item.roastedDate, item.timestamp);
+    const formattedSteepTime = formatTime(item.steepTime);
+
+    // Use template literals for the message
+    const shareMessage = `Shared from The Good Cup app:
+
+☕ Bean: ${item.beanName || 'Unknown Bean'}
+${roastAge !== null ? `   Age at Brew: ${roastAge} day${roastAge === 1 ? '' : 's'} old\n` : ''}
+⚙️ Brew Details:
+${item.grindSize ? `   Grind: ${item.grindSize}\n` : ''}${item.waterTemp ? `   Water: ${item.waterTemp}°C\n` : ''}   Time: ${formattedSteepTime}
+   Rating: ${item.rating}/10
+${item.notes ? `   Notes: ${item.notes}\n` : ''}`;
+    // Optional: Add app link
+    // shareMessage += `\nGet The Good Cup: [Your App Link]`;
+
+    try {
+      const result = await Share.share({
+        message: shareMessage.trim(), // Trim potential extra whitespace
+      });
+      if (result.action === Share.sharedAction) {
+        if (result.activityType) {
+          // shared with activity type of result.activityType
+          console.log(`Shared via ${result.activityType}`);
+        } else {
+          // shared
+          console.log('Shared successfully');
+        }
+      } else if (result.action === Share.dismissedAction) {
+        // dismissed
+        console.log('Share dismissed');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', `Failed to share brew: ${error.message}`);
+    }
+  };
+  // --- End Share Functionality ---
+
   const renderBrewItem = ({ item }: { item: Brew }) => {
     // Calculate roast age
     const roastAge = calculateAgeDays(item.roastedDate, item.timestamp);
 
     return (
-      <TouchableOpacity onPress={() => handleBrewPress(item)} activeOpacity={0.7}>
-         <View className="rounded-lg mb-3 p-4 bg-soft-off-white border border-pale-gray shadow-sm">
-           <View className="flex-row justify-between mb-2 items-center">
-             {/* Wrap date and age together */}
-             <View className="flex-row items-center">
-                <CustomText className="text-sm font-medium text-cool-gray-green">
-                  {formatDate(item.timestamp)}
-                </CustomText>
-                {/* Display Roast Age if available */} 
-                {roastAge !== null && (
-                  <CustomText className="text-xs font-medium text-cool-gray-green ml-1.5">
-                    {`(${roastAge} day${roastAge === 1 ? '' : 's'} old)`} 
-                  </CustomText>
-                )}
-              </View>
-             <CustomText className="text-sm font-semibold text-charcoal">
+      <View className="rounded-lg mb-3 p-4 bg-soft-off-white border border-pale-gray shadow-sm">
+        <View className="flex-row justify-between mb-2 items-center">
+          <View className="flex-row items-center flex-shrink mr-2"> 
+             <CustomText className="text-sm font-medium text-cool-gray-green">
+               {formatDate(item.timestamp)}
+             </CustomText>
+             {roastAge !== null && (
+               <CustomText className="text-xs font-medium text-cool-gray-green ml-1.5">
+                 {`(${roastAge} day${roastAge === 1 ? '' : 's'} old)`}
+               </CustomText>
+             )}
+           </View>
+           <View className="flex-row items-center">
+             <CustomText className="text-sm font-semibold text-charcoal mr-3">
                {item.rating}/10
              </CustomText>
+             <TouchableOpacity 
+                onPress={() => handleSharePress(item)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                className="p-1"
+             >
+               <ShareIcon size={20} color={themeColors['cool-gray-green']} />
+             </TouchableOpacity>
            </View>
-           
-           <View className="h-px bg-pale-gray mb-3" />
-           
-           {/* Display Roasted Date if available */} 
-           {item.roastedDate && (
-             <CustomText className="text-xs text-cool-gray-green mb-2">
-                 Roasted: {formatDate(item.roastedDate)}
-             </CustomText>
-           )}
+        </View>
 
-           <CustomText className="text-sm text-charcoal mb-1">
-             Steep time: {formatTime(item.steepTime)}
-           </CustomText>
-           
-           <CustomText className="text-sm text-charcoal mb-1">
-             Grind: {item.grindSize || 'Not specified'}
-           </CustomText>
-           
-           <CustomText className="text-sm text-charcoal mb-1">
-             Temp: {item.waterTemp || 'Not specified'}
-           </CustomText>
-           
-           {item.useBloom && (
-             <CustomText className="text-sm text-charcoal mb-1">
-               Bloom: {item.bloomTime || 'Yes'}
-             </CustomText>
-           )}
-           
-           {item.notes && (
-             <>
-               <View className="h-px bg-pale-gray my-2" />
-               <CustomText className="text-sm text-charcoal italic">
-                 {item.notes}
-               </CustomText>
-             </>
-           )}
-         </View>
-      </TouchableOpacity>
+        <View className="h-px bg-pale-gray mb-3" />
+
+        {item.roastedDate && (
+          <CustomText className="text-xs text-cool-gray-green mb-2">
+              Roasted: {formatDate(item.roastedDate)}
+          </CustomText>
+        )}
+
+        <CustomText className="text-sm text-charcoal mb-1">
+          Steep time: {formatTime(item.steepTime)}
+        </CustomText>
+        
+        <CustomText className="text-sm text-charcoal mb-1">
+          Grind: {item.grindSize || 'Not specified'}
+        </CustomText>
+        
+        <CustomText className="text-sm text-charcoal mb-1">
+          Temp: {item.waterTemp || 'Not specified'}
+        </CustomText>
+        
+        {item.useBloom && (
+          <CustomText className="text-sm text-charcoal mb-1">
+            Bloom: {item.bloomTime || 'Yes'}
+          </CustomText>
+        )}
+        
+        {item.notes && (
+          <>
+            <View className="h-px bg-pale-gray my-2" />
+            <CustomText className="text-sm text-charcoal italic">
+              {item.notes}
+            </CustomText>
+          </>
+        )}
+      </View>
     );
   };
 
