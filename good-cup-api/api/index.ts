@@ -3,26 +3,14 @@ import { handle } from 'hono/vercel'; // Keep commented for node server
 import { sign } from 'hono/jwt';
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
-import dayjs from 'dayjs';
 
 // Drizzle Imports
 import { drizzle } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
-// Import pgSchema
-import { pgTable, text, uuid, timestamp, pgSchema } from 'drizzle-orm/pg-core';
-
-// Define the schema object
-const goodCupSchema = pgSchema('good_cup');
-
-// Define Drizzle users table within the specified schema
-const usersTable = goodCupSchema.table('users', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  name: text('name'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-});
+// Import tables from schema.ts
+import * as schema from './schema'; // Import all exports as 'schema'
+// We also need the usersTable specifically for some queries, let's import it directly
+import { usersTable } from './schema';
 
 // Create the DB client directly in this file
 const connectionString = process.env.DATABASE_URL;
@@ -30,11 +18,11 @@ if (!connectionString) {
   throw new Error('DATABASE_URL environment variable is not set.');
 }
 const sql = neon(connectionString);
-const db = drizzle(sql, { schema: { users: usersTable }, logger: true });
+// Use the imported schema object for the client
+const db = drizzle(sql, { schema, logger: true });
 
 // Restore constants
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = '7d';
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // --- Web Crypto Helper Functions ---
