@@ -78,6 +78,7 @@ export default async (req: VercelRequest, res: VercelResponse) => {
 3. Flavor Notes: The flavor notes mentioned on the package
 4. Description: A description of the coffee beans
 5. Roast Date: The date the beans were roasted
+6. Origin: The origin of the coffee beans
 
 Return ONLY a JSON object with the following structure without any text outside the JSON:
 {
@@ -85,7 +86,8 @@ Return ONLY a JSON object with the following structure without any text outside 
   "roastLevel": ["Light","Medium-Light", "Medium", "Medium-Dark", "Dark"],
   "flavorNotes": ["Note 1", "Note 2", "Note 3"],
   "description": "Description of the coffee beans",
-  "roastedDate": "Date the beans were roasted"
+  "roastedDate": "Date the beans were roasted",
+  "origin": "Origin of the coffee beans"
 }
 
 If any information is not visible or cannot be determined from the image, use null for that field.`;

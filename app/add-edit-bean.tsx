@@ -27,6 +27,8 @@ import { useDefaultClassNames } from 'react-native-ui-datepicker';
 import dayjs from 'dayjs';
 import * as api from '../lib/api';
 import { Bean } from '../lib/api';
+import { useAuth } from '../lib/auth';
+import { analyzeImage } from '../lib/openai';
 
 // --- Tailwind --- 
 import resolveConfig from 'tailwindcss/resolveConfig';
@@ -39,13 +41,12 @@ const themeColors = (fullConfig.theme?.extend?.colors ?? fullConfig.theme?.color
 // Create an empty partial bean matching API structure for initial state
 const createEmptyPartialApiBean = (): Partial<Bean> => ({
   name: '',
-  roaster: '',
   origin: '',
-  process: '',
   roastLevel: '',
   roastedDate: null, // Use null for API compatibility
   flavorNotes: [],
   imageUrl: null, // Use null for API compatibility
+  description: null, // Add description
   // id, userId, createdAt, updatedAt are handled by backend/DB
 });
 
@@ -63,6 +64,7 @@ function BeanEditor() {
   const router = useRouter();
   const params = useLocalSearchParams<{ beanData?: string }>();
   const navigation = useNavigation();
+  const { token } = useAuth();
 
   const [isEditing, setIsEditing] = useState(false);
   const [bean, setBean] = useState<Partial<Bean>>(createEmptyPartialApiBean());
@@ -80,13 +82,12 @@ function BeanEditor() {
         setBean({
           id: existingBean.id,
           name: existingBean.name || '',
-          roaster: existingBean.roaster || '',
           origin: existingBean.origin || '',
-          process: existingBean.process || '',
           roastLevel: existingBean.roastLevel || '',
           roastedDate: existingBean.roastedDate || null,
           flavorNotes: existingBean.flavorNotes || [],
           imageUrl: existingBean.imageUrl || null,
+          description: existingBean.description || null, // Load description
         });
         setIsEditing(true);
         console.log("Editing bean:", existingBean.id);
@@ -109,15 +110,14 @@ function BeanEditor() {
     setLoading(true);
     setErrorText(null);
 
-    const beanDataToSave: Partial<Omit<Bean, 'id' | 'userId' | 'createdAt' | 'updatedAt'>> = {
+    const beanDataToSave: Partial<Omit<Bean, 'id' | 'userId' | 'createdAt' | 'updatedAt'> | Omit<Bean, 'userId' | 'createdAt' | 'updatedAt'>> = {
       name: bean.name,
-      roaster: bean.roaster || null,
       origin: bean.origin || null,
-      process: bean.process || null,
       roastLevel: bean.roastLevel || null,
       roastedDate: bean.roastedDate || null,
       flavorNotes: bean.flavorNotes && bean.flavorNotes.length > 0 ? bean.flavorNotes.map(f => f.trim()).filter(f => f) : null,
       imageUrl: bean.imageUrl || null,
+      description: bean.description || null, // Save description
     };
 
     try {
@@ -139,19 +139,6 @@ function BeanEditor() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const callAnalyzeApi = async (base64Image: string) => {
-    console.warn("analyzeBean API call is not implemented in lib/api.ts yet. Using dummy data.");
-    return {
-        beanName: "Dummy Bean",
-        roaster: "Dummy Roaster",
-        country: "Dummy Origin",
-        process: "Dummy Process",
-        roastLevel: "Medium",
-        flavorNotes: ["Dummy Note 1", "Dummy Note 2"],
-        roastedDate: dayjs().subtract(10, 'day').toISOString()
-    };
   };
 
   const takePhoto = async () => {
@@ -198,19 +185,27 @@ function BeanEditor() {
     setErrorText(null);
     setAnalysisResults(null);
     try {
-      const results = await callAnalyzeApi(base64Image.split(',')[1]);
-      console.log("Analysis Results:", results);
+      if (!token) {
+        setErrorText("Authentication required. Please sign in.");
+        Alert.alert("Authentication Error", "You need to be signed in to analyze images.");
+        setAnalyzing(false);
+        return;
+      }
+
+      console.log("Calling analyzeImage API...");
+      const results = await analyzeImage(base64Image, token);
+
+      console.log("Analysis Results from API:", results);
       setAnalysisResults(results);
 
       setBean(prev => ({
           ...prev,
-          name: results.beanName || prev.name,
-          roaster: results.roaster || prev.roaster,
-          origin: results.country || prev.origin,
-          process: results.process || prev.process,
+          name: results.name || prev.name,
+          origin: results.origin || prev.origin,
           roastLevel: results.roastLevel || prev.roastLevel,
-          roastedDate: results.roastedDate || prev.roastedDate,
+          roastedDate: results.roastedDate && dayjs(results.roastedDate).isValid() ? dayjs(results.roastedDate).toISOString() : prev.roastedDate,
           flavorNotes: results.flavorNotes || prev.flavorNotes,
+          description: results.description || prev.description,
       }));
       Alert.alert("Analysis Complete", "Bean details populated. Please review.");
 
@@ -319,33 +314,11 @@ function BeanEditor() {
               </View>
 
                <View className="mb-2 mt-4">
-                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Roaster</Text>
-                <TextInput
-                  value={bean.roaster || ''} // Use bean.roaster
-                  onChangeText={(text: string) => handleInputChange('roaster', text)}
-                  placeholder="Roaster Name (e.g., Sweet Bloom)"
-                  style={styles.inputStyle}
-                  placeholderTextColor={themeColors['cool-gray-green']}
-                />
-              </View>
-
-               <View className="mb-2 mt-4">
                 <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Origin</Text>
                 <TextInput
                   value={bean.origin || ''} // Use bean.origin
                   onChangeText={(text: string) => handleInputChange('origin', text)}
                   placeholder="Origin (e.g., Ethiopia, Colombia)"
-                  style={styles.inputStyle}
-                  placeholderTextColor={themeColors['cool-gray-green']}
-                />
-              </View>
-
-               <View className="mb-2 mt-4">
-                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Process</Text>
-                <TextInput
-                  value={bean.process || ''} // Use bean.process
-                  onChangeText={(text: string) => handleInputChange('process', text)}
-                  placeholder="Processing Method (e.g., Washed, Natural)"
                   style={styles.inputStyle}
                   placeholderTextColor={themeColors['cool-gray-green']}
                 />

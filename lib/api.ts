@@ -48,6 +48,7 @@ export interface Bean { // Define and export Bean interface
   roastedDate: string | null; // Expecting ISO date string from backend
   flavorNotes: string[] | null;
   imageUrl: string | null;
+  description: string | null; // Add description field
   createdAt: string;
   updatedAt: string;
 }

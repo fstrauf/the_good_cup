@@ -19,14 +19,13 @@ export const usersTable = goodCupSchema.table('users', {
 export const beansTable = goodCupSchema.table('beans', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => usersTable.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  roaster: text('roaster'),
+  name: text('name').notNull(),  
   origin: text('origin'),
-  process: text('process'),
   roastLevel: text('roast_level'),
   roastedDate: timestamp('roasted_date', { withTimezone: true }),
   flavorNotes: text('flavor_notes').array(), // Array of strings
   imageUrl: text('image_url'),
+  description: text('description'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 });
