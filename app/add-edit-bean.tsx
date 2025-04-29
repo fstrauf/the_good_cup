@@ -200,7 +200,7 @@ function BeanEditor() {
 
       setBean(prev => ({
           ...prev,
-          name: results.name || prev.name,
+          name: results.beanName || prev.name,
           origin: results.origin || prev.origin,
           roastLevel: results.roastLevel || prev.roastLevel,
           roastedDate: results.roastedDate && dayjs(results.roastedDate).isValid() ? dayjs(results.roastedDate).toISOString() : prev.roastedDate,
@@ -379,6 +379,20 @@ function BeanEditor() {
                    onChangeText={(text: string) => handleInputChange('flavorNotes', text)}
                    placeholder="e.g., Blueberry, Chocolate, Citrus"
                    style={styles.inputStyle}
+                   placeholderTextColor={themeColors['cool-gray-green']}
+                 />
+               </View>
+
+               {/* Description Input - Added */}
+               <View className="mb-2 mt-4">
+                 <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Description</Text>
+                 <TextInput
+                   value={bean.description || ''} // Use bean.description
+                   onChangeText={(text: string) => handleInputChange('description', text)}
+                   placeholder="Additional notes about this coffee"
+                   multiline
+                   numberOfLines={3} // Suggests a minimum height
+                   style={[styles.inputStyle, { minHeight: 80, textAlignVertical: "top", paddingTop: 10 }]} // Apply base style + multiline adjustments
                    placeholderTextColor={themeColors['cool-gray-green']}
                  />
                </View>
