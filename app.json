@@ -47,7 +47,8 @@
       },
       "eas": {
         "projectId": "3fd9b689-792b-4b9d-aca9-ebe84b0ed27b"
-      }
+      },
+      "apiUrl": ""
     }
   }
 }
