@@ -967,13 +967,8 @@ app.route('/settings', settingsRoutes);
 // --- End User Settings API Routes ---
 
 // --- Beans API Routes ---
-const beansRoutes = new Hono<HonoEnv>();
-
-// Apply auth middleware
-beansRoutes.use('*', authMiddleware);
-
-// GET /beans - List all beans for the user
-beansRoutes.get('/', async (c) => {
+// Apply auth middleware directly to the route
+app.get('/beans', authMiddleware, async (c) => {
   const userId = c.get('userId');
   try {
     const beans = await db.select()
@@ -987,8 +982,8 @@ beansRoutes.get('/', async (c) => {
   }
 });
 
-// POST /beans - Create a new bean
-beansRoutes.post('/', async (c) => {
+// POST /beans - Create a new bean (Keep using middleware)
+app.post('/beans', authMiddleware, async (c) => {
   const userId = c.get('userId');
   const body = await c.req.json();
 
@@ -1023,8 +1018,8 @@ beansRoutes.post('/', async (c) => {
   }
 });
 
-// GET /beans/:id - Get a specific bean
-beansRoutes.get('/:id', async (c) => {
+// GET /beans/:id - Get a specific bean (Keep using middleware)
+app.get('/beans/:id', authMiddleware, async (c) => {
   const userId = c.get('userId');
   const beanId = c.req.param('id');
   try {
@@ -1043,8 +1038,8 @@ beansRoutes.get('/:id', async (c) => {
   }
 });
 
-// PUT /beans/:id - Update an existing bean
-beansRoutes.put('/:id', async (c) => {
+// PUT /beans/:id - Update an existing bean (Keep using middleware)
+app.put('/beans/:id', authMiddleware, async (c) => {
   const userId = c.get('userId');
   const beanId = c.req.param('id');
   const body = await c.req.json();
@@ -1080,8 +1075,8 @@ beansRoutes.put('/:id', async (c) => {
   }
 });
 
-// DELETE /beans/:id - Delete a bean
-beansRoutes.delete('/:id', async (c) => {
+// DELETE /beans/:id - Delete a bean (Keep using middleware)
+app.delete('/beans/:id', authMiddleware, async (c) => {
   const userId = c.get('userId');
   const beanId = c.req.param('id');
 
@@ -1103,8 +1098,6 @@ beansRoutes.delete('/:id', async (c) => {
   }
 });
 
-// Mount the beans routes under the main app
-app.route('/beans', beansRoutes);
 // --- End Beans API Routes ---
 
 // --- Brews API Routes ---
@@ -1267,5 +1260,4 @@ app.route('/brews', brewsRoutes);
 // --- End Brews API Routes ---
 
 export { app }; // <-- Add named export for the Hono instance
-export const runtime = 'edge';
 export default handle(app); 

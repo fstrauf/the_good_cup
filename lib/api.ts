@@ -2,8 +2,10 @@ import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
 // --- Configuration ---
+// Hardcode the API URL for local development/simplicity
+const API_URL = 'https://the-good-cup-api.vercel.app'; // <-- HARDCODED
 // Retrieve the API URL from Expo constants (environment variables)
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:3000'; // Provide a fallback for local dev
+// const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:3000'; // Provide a fallback for local dev
 const TOKEN_KEY = 'jwt_token'; // Key used to store the token securely
 
 // --- Interfaces (mirroring backend/schema) ---
@@ -92,7 +94,11 @@ const fetchWithAuth = async (endpoint: string, options: RequestInit = {}): Promi
     headers.append('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${API_URL}${endpoint}`, {
+  // Prepend /api to the endpoint for Vercel deployment
+  const fullUrl = `${API_URL}/api${endpoint}`;
+  console.log('Making API request to:', fullUrl); // Add logging for debugging
+
+  const response = await fetch(fullUrl, {
     ...options,
     headers,
   });
