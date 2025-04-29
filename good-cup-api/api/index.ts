@@ -18,8 +18,13 @@ if (!connectionString) {
   throw new Error('DATABASE_URL environment variable is not set.');
 }
 const sql = neon(connectionString);
+console.log('Neon client initialized.'); // Log after Neon init
+
+console.log('Initializing Drizzle client...'); // Log before Drizzle init
 // Use the imported schema object for the client
-const db = drizzle(sql, { schema, logger: true });
+// const db = drizzle(sql, { schema, logger: true }); // <-- COMMENT OUT for testing
+console.log('Drizzle client initialization SKIPPED at top level.'); // Log after Drizzle init
+// --- End logging around DB setup ---
 
 // Restore constants
 const JWT_SECRET = process.env.JWT_SECRET;
