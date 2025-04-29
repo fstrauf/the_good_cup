@@ -1,24 +1,8 @@
 // api/ping-db.ts
 
-import { drizzle } from 'drizzle-orm/neon-http';
-import { neon } from '@neondatabase/serverless';
 import * as schema from './schema'; // Adjust path
-
-// --- Database Setup ---
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error('[ping-db.ts:Init:Error] FATAL: DATABASE_URL missing.');
-  throw new Error('DATABASE_URL environment variable is not set.');
-}
-let db: ReturnType<typeof drizzle>;
-try {
-    const sql = neon(connectionString);
-    db = drizzle(sql, { schema, logger: process.env.NODE_ENV !== 'production' });
-    console.log('[ping-db.ts:Init] DB Client Initialized');
-} catch (initError) {
-    console.error('[ping-db.ts:Init:Error] DB initialization failed:', initError);
-}
-// --- End Database Setup ---
+// Import shared DB instance
+import { db } from '../lib/db'; // Adjust path
 
 // --- Vercel Request Handler for GET /api/ping-db ---
 export default async (req: any, res: any) => {
@@ -36,8 +20,9 @@ export default async (req: any, res: any) => {
     }
 
     console.log('[ping-db.ts] GET handler invoked');
-    if (!db) {
-        console.error('[ping-db.ts:Error] DB client was not initialized.');
+    // Use imported db
+    if (!db) { 
+        console.error('[ping-db.ts:Error] DB client not available from lib.');
         return res.status(500).json({ status: 'error', message: 'Database client failed to initialize' });
     }
     

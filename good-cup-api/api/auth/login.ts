@@ -1,82 +1,13 @@
-import { drizzle } from 'drizzle-orm/neon-http';
-import { neon } from '@neondatabase/serverless';
 import * as schema from '../schema'; // Adjust path
-import crypto from 'crypto'; 
+import crypto from 'crypto'; // Keep for JWT helpers
 import { eq } from 'drizzle-orm';
 
-// --- Database Setup ---
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error('[login.ts:Init:Error] FATAL: DATABASE_URL missing.');
-  throw new Error('DATABASE_URL environment variable is not set.');
-}
-let db: ReturnType<typeof drizzle>;
-try {
-    const sql = neon(connectionString);
-    db = drizzle(sql, { schema, logger: process.env.NODE_ENV !== 'production' });
-    console.log('[login.ts:Init] DB Client Initialized');
-} catch (initError) {
-    console.error('[login.ts:Init:Error] DB initialization failed:', initError);
-}
-// --- End Database Setup ---
-
-// --- Password Verification Helpers ---
-const PBKDF2_ITERATIONS = 100000;
-const base64ToUint8Array = (base64: string): Uint8Array => {
-  const binary_string = Buffer.from(base64, 'base64').toString('binary');
-  const len = binary_string.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) { bytes[i] = binary_string.charCodeAt(i); }
-  return bytes;
-};
-
-async function verifyPassword(password: string, storedHashString: string): Promise<boolean> {
-   try {
-        const [saltBase64, storedHashBase64] = storedHashString.split('$');
-        if (!saltBase64 || !storedHashBase64) { console.error('[login.ts:Auth:Error] Invalid hash format'); return false; }
-        const salt = base64ToUint8Array(saltBase64);
-        const storedHash = base64ToUint8Array(storedHashBase64);
-        const passwordKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
-        const derivedHashBuffer = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' }, passwordKey, storedHash.length * 8);
-        const derivedHash = new Uint8Array(derivedHashBuffer);
-        if (derivedHash.length !== storedHash.length) return false;
-        let diff = 0;
-        for (let i = 0; i < derivedHash.length; i++) { diff |= derivedHash[i] ^ storedHash[i]; }
-        return diff === 0;
-    } catch (error) {
-        console.error('[login.ts:Auth:Error] Password verification error:', error);
-        return false;
-    }
-}
-// --- End Password Verification Helpers ---
-
-// --- JWT Creation Helper ---
-const JWT_SECRET = process.env.JWT_SECRET;
-function createJwt(payload: object, secret: string): string {
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
-  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const hmac = crypto.createHmac('sha256', secret);
-  hmac.update(`${encodedHeader}.${encodedPayload}`);
-  const signature = hmac.digest('base64url');
-  return `${encodedHeader}.${encodedPayload}.${signature}`;
-}
-// --- End JWT Creation Helper ---
-
-// --- Request Body Parser ---
-async function getBodyJSON(req: any): Promise<any> {
-    // ... (Same implementation as before)
-     return new Promise((resolve, reject) => {
-        let body = '';
-        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-        req.on('end', () => {
-            try { resolve(JSON.parse(body || '{}')); }
-            catch (e) { console.error('[login.ts:BodyParse:Error]', e); reject(new Error('Invalid JSON')); }
-        });
-        req.on('error', (err: Error) => { console.error('[login.ts:ReqError]', err); reject(err); });
-    });
-}
-// --- End Request Body Parser ---
+// Import shared DB
+import { db } from '../../lib/db'; // Adjust path relative to api/auth/
+// Import shared Auth helpers
+import { JWT_SECRET, verifyPassword, createJwt } from '../../lib/auth'; // Adjust path
+// Import shared Utils
+import { getBodyJSON } from '../../lib/utils'; // Adjust path
 
 // --- Vercel Request Handler for POST /api/auth/login ---
 export default async (req: any, res: any) => {
@@ -94,13 +25,19 @@ export default async (req: any, res: any) => {
     }
 
     console.log('[login.ts] POST handler invoked');
-    if (!db) return res.status(500).json({ message: 'DB not initialized' });
-    if (!JWT_SECRET) return res.status(500).json({ message: 'JWT Secret not configured' });
+    if (!db) {
+         console.error('[login.ts:Error] DB client not available from lib.');
+         return res.status(500).json({ message: 'DB not initialized' });
+    }
+    if (!JWT_SECRET) {
+        console.error('[login.ts:Error] JWT_SECRET not available from lib.');
+        return res.status(500).json({ message: 'JWT Secret not configured' });
+    }
 
     try {
         const { email, password } = await getBodyJSON(req);
 
-        // Validation (copied from index.ts)
+        // Validation
         if (!email || typeof email !== 'string') {
             return res.status(400).json({ message: 'Email is required.' });
         }
@@ -108,7 +45,7 @@ export default async (req: any, res: any) => {
             return res.status(400).json({ message: 'Password is required.' });
         }
 
-        // Find user
+        // Find user (using imported db)
         const foundUsers = await db.select()
                                 .from(schema.usersTable)
                                 .where(eq(schema.usersTable.email, email.toLowerCase()))
@@ -118,12 +55,13 @@ export default async (req: any, res: any) => {
         }
         const user = foundUsers[0];
 
+        // Verify password (using imported helper)
         const passwordMatches = await verifyPassword(password, user.passwordHash);
         if (!passwordMatches) {
             return res.status(401).json({ message: 'Invalid email or password.' });
         }
 
-        // Create JWT
+        // Create JWT (using imported helper)
         const tokenPayload = {
             userId: user.id,
             email: user.email,

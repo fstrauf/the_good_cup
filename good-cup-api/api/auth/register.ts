@@ -1,75 +1,13 @@
-import { drizzle } from 'drizzle-orm/neon-http';
-import { neon } from '@neondatabase/serverless';
 import * as schema from '../schema'; // Adjust path based on actual location
-import crypto from 'crypto'; 
+import crypto from 'crypto'; // Keep for hashPassword
 import { eq } from 'drizzle-orm';
 
-// --- Database Setup ---
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error('[register.ts:Init:Error] FATAL: DATABASE_URL missing.');
-  throw new Error('DATABASE_URL environment variable is not set.');
-}
-let db: ReturnType<typeof drizzle>;
-try {
-    const sql = neon(connectionString);
-    db = drizzle(sql, { schema, logger: process.env.NODE_ENV !== 'production' });
-    console.log('[register.ts:Init] DB Client Initialized');
-} catch (initError) {
-    console.error('[register.ts:Init:Error] DB initialization failed:', initError);
-}
-// --- End Database Setup ---
-
-// --- Password Hashing Helpers ---
-const PBKDF2_ITERATIONS = 100000;
-const SALT_BYTES = 16;
-const KEY_LENGTH_BYTES = 32;
-
-const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
-  return Buffer.from(buffer).toString('base64');
-};
-
-async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
-  const passwordKey = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(password),
-    { name: 'PBKDF2' },
-    false,
-    ['deriveBits']
-  );
-  const hashBuffer = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      salt: salt,
-      iterations: PBKDF2_ITERATIONS,
-      hash: 'SHA-256',
-    },
-    passwordKey,
-    KEY_LENGTH_BYTES * 8 
-  );
-  const saltBase64 = arrayBufferToBase64(salt);
-  const hashBase64 = arrayBufferToBase64(hashBuffer);
-  return `${saltBase64}$${hashBase64}`; 
-}
-// --- End Password Hashing Helpers ---
-
-// --- Request Body Parser ---
-async function getBodyJSON(req: any): Promise<any> {
-    // ... (Same implementation as before)
-     return new Promise((resolve, reject) => {
-        let body = '';
-        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-        req.on('end', () => {
-            try { resolve(JSON.parse(body || '{}')); }
-            catch (e) { console.error('[register.ts:BodyParse:Error]', e); reject(new Error('Invalid JSON')); }
-        });
-        req.on('error', (err: Error) => { console.error('[register.ts:ReqError]', err); reject(err); });
-    });
-}
-// --- End Request Body Parser ---
-
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Import shared DB
+import { db } from '../../lib/db'; // Adjust path
+// Import shared Auth helpers
+import { hashPassword } from '../../lib/auth'; // Adjust path
+// Import shared Utils
+import { getBodyJSON, emailRegex } from '../../lib/utils'; // Adjust path
 
 // --- Vercel Request Handler for POST /api/auth/register ---
 export default async (req: any, res: any) => {
@@ -88,12 +26,15 @@ export default async (req: any, res: any) => {
     }
 
     console.log('[register.ts] POST handler invoked');
-    if (!db) return res.status(500).json({ message: 'DB not initialized' });
+    if (!db) {
+        console.error('[register.ts:Error] DB client not available from lib.');
+        return res.status(500).json({ message: 'DB not initialized' });
+    }
 
     try {
         const { email, password, name } = await getBodyJSON(req);
         
-        // Validation (copied from index.ts)
+        // Validation
         if (!email || typeof email !== 'string' || !emailRegex.test(email)) {
           return res.status(400).json({ message: 'Invalid email format.' });
         }
@@ -104,7 +45,7 @@ export default async (req: any, res: any) => {
           return res.status(400).json({ message: 'Invalid name format.' });
         }
 
-        // Check existing user
+        // Check existing user (using imported db)
         const existingUsers = await db.select({ email: schema.usersTable.email })
                                     .from(schema.usersTable)
                                     .where(eq(schema.usersTable.email, email.toLowerCase()))
@@ -113,9 +54,10 @@ export default async (req: any, res: any) => {
           return res.status(409).json({ message: 'User with this email already exists.' });
         }
 
+        // Hash password (using imported helper)
         const passwordHash = await hashPassword(password);
 
-        // Insert user
+        // Insert user (using imported db)
         const insertedUsers = await db.insert(schema.usersTable)
                                     .values({
                                         email: email.toLowerCase(),
