@@ -1,6 +1,17 @@
 // Image Analysis handler for Vercel serverless function
-import { VercelRequest, VercelResponse } from '@vercel/node';
+import { Hono } from 'hono';
+import { handle } from 'hono/vercel';
+// Keep OpenAI import as commonjs require for now
 const { OpenAI } = require('openai');
+// Import auth helpers (assuming path relative to api directory)
+import { verifyJwt, JWT_SECRET } from '../lib/auth';
+
+// Define types for Hono context variables
+type HonoEnv = {
+  Variables: {
+    userId: string; // Keep userId in context even if not directly used by analysis
+  }
+}
 
 // Helper function to extract JSON from potentially formatted string
 function extractJson(content: string | null | undefined): any | null {
@@ -37,39 +48,58 @@ function extractJson(content: string | null | undefined): any | null {
   }
 }
 
-// Export the handler function using ES module syntax
-export default async (req: VercelRequest, res: VercelResponse) => {
-  // Handle OPTIONS request for CORS
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    return res.status(204).end();
-  }
-  
-  // Only handle POST requests
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
+// Optional: Set to 'edge' if preferred
+// export const runtime = 'edge';
 
-  // Authentication check
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized' });
+const app = new Hono<HonoEnv>().basePath('/api/analyze-image');
+
+// --- Authentication Middleware --- 
+// (Important for protecting the endpoint, even if userId isn't used in core logic)
+app.use('*' /* Apply to all routes */, async (c, next) => {
+  const authHeader = c.req.header('authorization');
+  if (!JWT_SECRET) {
+    console.error("[Auth Middleware] JWT_SECRET missing");
+    return c.json({ message: 'Server configuration error' }, 500);
   }
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ message: 'Authorization header missing or invalid' }, 401);
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = verifyJwt(token, JWT_SECRET);
+    if (!decoded || !decoded.userId) {
+      return c.json({ message: 'Invalid token payload' }, 401);
+    }
+    c.set('userId', decoded.userId);
+    await next();
+  } catch (error) {
+    console.error("[Auth Middleware] Token verification failed:", error);
+    const isExpired = error instanceof Error && error.message === 'JwtTokenExpired';
+    return c.json({ message: isExpired ? 'Token expired' : 'Invalid token' }, 401);
+  }
+});
+
+// --- Route Handler --- 
+
+// POST /api/analyze-image
+app.post('/', async (c) => {
+  // const userId = c.get('userId'); // User ID available if needed later
 
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
   if (!OPENAI_API_KEY) {
-    return res.status(500).json({ error: 'Server configuration error: Missing OpenAI API key' });
+    console.error("analyze-image: Missing OpenAI API key");
+    return c.json({ error: 'Server configuration error: Missing OpenAI API key' }, 500);
   }
 
   try {
-    const { image } = req.body || {};
+    // Get image from request body using Hono context
+    const { image }: { image?: string } = await c.req.json();
     
     if (!image) {
-      return res.status(400).json({ error: 'Missing required parameter: image' });
+      return c.json({ error: 'Missing required parameter: image' }, 400);
     }
 
+    // Keep the OpenAI client initialization and prompt logic
     const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     const prompt = `Analyze this coffee bean package image and extract the following information:
@@ -92,8 +122,9 @@ Return ONLY a JSON object with the following structure without any text outside 
 
 If any information is not visible or cannot be determined from the image, use null for that field.`;
 
+    // Keep the OpenAI API call logic
     const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-2025-04-14', 
+      model: 'gpt-4.1-2025-04-14', // Consider making model configurable
       messages: [
         {
           role: 'user',
@@ -111,31 +142,35 @@ If any information is not visible or cannot be determined from the image, use nu
       max_tokens: 500,
     });
 
+    // Keep the response processing logic
     const messageContent = response.choices[0]?.message?.content;
     if (!messageContent) {
-      return res.status(500).json({ 
-        error: 'No message content received from OpenAI API' 
-      });
+      return c.json({ error: 'No message content received from OpenAI API' }, 500);
     }
 
-    // Use the helper function to extract and parse
     const jsonResponse = extractJson(messageContent);
 
     if (jsonResponse) {
-      return res.status(200).json(jsonResponse);
+      // Return response using Hono context
+      return c.json(jsonResponse);
     } else {
       console.error('Failed to extract/parse OpenAI response:', messageContent);
-      return res.status(500).json({ 
+      // Return error using Hono context
+      return c.json({ 
         error: 'Failed to parse AI response as JSON',
-        rawResponse: messageContent // Send raw response for debugging
-      });
+        rawResponse: messageContent
+      }, 500);
     }
+
   } catch (error) {
     console.error('Error processing analyze-image:', error);
-    return res.status(500).json({
+    // Return error using Hono context
+    return c.json({
       error: 'Internal server error',
-      // Check if error is an Error instance before accessing message
       details: error instanceof Error ? error.message : String(error)
-    });
+    }, 500);
   }
-}; 
+});
+
+// Export the Hono app handler for Vercel
+export default handle(app); 

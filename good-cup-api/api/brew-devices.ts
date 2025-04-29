@@ -1,125 +1,134 @@
 // api/brew-devices.ts - Handles GET, POST, PUT, DELETE
-import * as schema from './schema'; 
+import { Hono } from 'hono';
+import { handle } from 'hono/vercel';
+import { db } from '../lib/db'; // Adjust path as needed
+import { brewDevicesTable } from './schema'; // Adjust path as needed
 import { eq, and } from 'drizzle-orm';
-import { db } from '../lib/db'; 
-import { verifyAuthToken } from '../lib/auth'; 
-import { getBodyJSON } from '../lib/utils'; 
+import { verifyJwt, JWT_SECRET } from '../lib/auth'; // Adjust path as needed
 
-export default async (req: any, res: any) => {
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*'); 
-    if (req.method === 'OPTIONS') {
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS'); // Add PUT, DELETE
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-        return res.status(204).end();
+// Define types for Hono context variables (same as beans)
+type HonoEnv = {
+  Variables: {
+    userId: string;
+  }
+}
+
+// Optional: Set to 'edge' if preferred
+// export const runtime = 'edge';
+
+const app = new Hono<HonoEnv>().basePath('/api/brew-devices');
+
+// --- Authentication Middleware (Copied from beans) ---
+app.use('*' /* Apply to all routes */, async (c, next) => {
+  const authHeader = c.req.header('authorization');
+  if (!JWT_SECRET) {
+    console.error("[Auth Middleware] JWT_SECRET missing");
+    return c.json({ message: 'Server configuration error' }, 500);
+  }
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json({ message: 'Authorization header missing or invalid' }, 401);
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = verifyJwt(token, JWT_SECRET);
+    if (!decoded || !decoded.userId) {
+      return c.json({ message: 'Invalid token payload' }, 401);
     }
+    c.set('userId', decoded.userId);
+    await next();
+  } catch (error) {
+    console.error("[Auth Middleware] Token verification failed:", error);
+    const isExpired = error instanceof Error && error.message === 'JwtTokenExpired';
+    return c.json({ message: isExpired ? 'Token expired' : 'Invalid token' }, 401);
+  }
+});
 
-    // Auth
-    const authResult = await verifyAuthToken(req);
-    if (!authResult.userId) {
-        return res.status(authResult.status || 401).json({ message: authResult.error });
+// --- Route Handlers ---
+
+// GET /api/brew-devices (List Devices)
+app.get('/', async (c) => {
+  const userId = c.get('userId');
+  try {
+    const devices = await db.select().from(brewDevicesTable).where(eq(brewDevicesTable.userId, userId)).orderBy(brewDevicesTable.name);
+    return c.json(devices);
+  } catch (error) {
+    console.error("Error fetching brew devices:", error);
+    return c.json({ message: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
+
+// POST /api/brew-devices (Add Device)
+app.post('/', async (c) => {
+  const userId = c.get('userId');
+  try {
+    const { name, type, notes }: { name?: string; type?: string | null; notes?: string | null } = await c.req.json();
+    if (!name) {
+      return c.json({ message: 'Device name is required' }, 400);
     }
-    const userId = authResult.userId;
-
-    // DB Check
-    if (!db) return res.status(500).json({ message: 'DB not initialized' });
-
-    // Get ID from query, if present
-    const { id: deviceId } = req.query; // Use deviceId to match original code
-
-    // --- Routes WITHOUT ID (/api/brew-devices) ---
-    if (!deviceId) { 
-        // --- GET /api/brew-devices ---
-        if (req.method === 'GET') {
-            console.log('[brew-devices.ts] GET all invoked');
-            try {
-                const devices = await db.select()
-                  .from(schema.brewDevicesTable)
-                  .where(eq(schema.brewDevicesTable.userId, userId))
-                  .orderBy(schema.brewDevicesTable.createdAt);
-                return res.status(200).json(devices);
-            } catch (error) {
-                console.error('[brew-devices.ts:GET:Error]', error);
-                return res.status(500).json({ message: 'Internal Server Error fetching brew devices' });
-            }
-        }
-        // --- POST /api/brew-devices ---
-        else if (req.method === 'POST') {
-            console.log('[brew-devices.ts] POST invoked');
-            try {
-                const { name, type, notes } = await getBodyJSON(req);
-                if (!name || typeof name !== 'string') {
-                    return res.status(400).json({ message: 'Device name is required' });
-                }
-                const newDevice = await db.insert(schema.brewDevicesTable)
-                    .values({ userId: userId, name: name, type: type || null, notes: notes || null })
-                    .returning();
-                if (newDevice.length === 0) throw new Error('Failed to create brew device');
-                return res.status(201).json(newDevice[0]);
-            } catch (error) {
-                console.error('[brew-devices.ts:POST:Error]', error);
-                if (error instanceof Error && error.message.includes('Invalid JSON')) {
-                    return res.status(400).json({ message: error.message });
-                }
-                return res.status(500).json({ message: 'Internal Server Error creating brew device' });
-            }
-        }
-        // --- Method Not Allowed ---
-        else {
-            res.setHeader('Allow', ['GET', 'POST']);
-            return res.status(405).json({ message: `Method ${req.method} Not Allowed for /api/brew-devices` });
-        }
+    const dataToInsert = { name, type, notes, userId };
+    const newDevice = await db.insert(brewDevicesTable).values(dataToInsert).returning();
+    if (!newDevice || newDevice.length === 0) {
+      throw new Error("Failed to insert device.");
     }
-    // --- Routes WITH ID (/api/brew-devices/[id]) ---
-    else {
-        if (typeof deviceId !== 'string') { // Explicit check
-            return res.status(400).json({ message: 'Missing or invalid device ID in URL' });
-        }
+    return c.json(newDevice[0], 201);
+  } catch (error) {
+    console.error("Error adding brew device:", error);
+    return c.json({ message: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
 
-        // --- PUT /api/brew-devices/[id] ---
-        if (req.method === 'PUT') {
-             console.log(`[brew-devices.ts] PUT invoked for ID: ${deviceId}`);
-             try {
-                const { name, type, notes } = await getBodyJSON(req);
-                if (!name || typeof name !== 'string') {
-                    return res.status(400).json({ message: 'Device name is required' });
-                }
-                const updatedDevice = await db.update(schema.brewDevicesTable)
-                    .set({ name: name, type: type || null, notes: notes || null, updatedAt: new Date() })
-                    .where(and(eq(schema.brewDevicesTable.id, deviceId), eq(schema.brewDevicesTable.userId, userId)))
-                    .returning();
-                if (updatedDevice.length === 0) {
-                    return res.status(404).json({ message: 'Brew device not found or update failed (check ID and ownership)' });
-                }
-                return res.status(200).json(updatedDevice[0]);
-            } catch (error) {
-                console.error(`[brew-devices.ts:PUT:Error] ID: ${deviceId}`, error);
-                 if (error instanceof Error && error.message.includes('Invalid JSON')) {
-                    return res.status(400).json({ message: error.message });
-                }
-                return res.status(500).json({ message: 'Internal Server Error updating brew device' });
-            }
-        }
-        // --- DELETE /api/brew-devices/[id] ---
-        else if (req.method === 'DELETE') {
-            console.log(`[brew-devices.ts] DELETE invoked for ID: ${deviceId}`);
-            try {
-                const deletedDevice = await db.delete(schema.brewDevicesTable)
-                    .where(and(eq(schema.brewDevicesTable.id, deviceId), eq(schema.brewDevicesTable.userId, userId)))
-                    .returning({ id: schema.brewDevicesTable.id });
-                if (deletedDevice.length === 0) {
-                    return res.status(404).json({ message: 'Brew device not found or delete failed (check ID and ownership)' });
-                }
-                return res.status(200).json({ message: 'Brew device deleted successfully' });
-            } catch (error) {
-                console.error(`[brew-devices.ts:DELETE:Error] ID: ${deviceId}`, error);
-                return res.status(500).json({ message: 'Internal Server Error deleting brew device' });
-            }
-        }
-        // --- Method Not Allowed ---
-        else {
-            res.setHeader('Allow', ['PUT', 'DELETE']);
-            return res.status(405).json({ message: `Method ${req.method} Not Allowed for /api/brew-devices/${deviceId}` });
-        }
+// GET /api/brew-devices/:id (Get Single Device)
+app.get('/:id', async (c) => {
+  const userId = c.get('userId');
+  const deviceId = c.req.param('id');
+  try {
+    const result = await db.select().from(brewDevicesTable).where(and(eq(brewDevicesTable.id, deviceId), eq(brewDevicesTable.userId, userId))).limit(1);
+    if (!result || result.length === 0) {
+      return c.json({ message: 'Device not found' }, 404);
     }
-}; 
+    return c.json(result[0]);
+  } catch (error) {
+    console.error(`Error fetching device ${deviceId}:`, error);
+    return c.json({ message: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
+
+// PUT /api/brew-devices/:id (Update Device)
+app.put('/:id', async (c) => {
+  const userId = c.get('userId');
+  const deviceId = c.req.param('id');
+  try {
+    const { name, type, notes }: { name?: string; type?: string | null; notes?: string | null } = await c.req.json();
+    if (name === '') {
+      return c.json({ message: 'Device name cannot be empty' }, 400);
+    }
+    const dataToUpdate = { name, type, notes, updatedAt: new Date() }; // Ensure name is included if required
+    const updatedDevice = await db.update(brewDevicesTable).set(dataToUpdate).where(and(eq(brewDevicesTable.id, deviceId), eq(brewDevicesTable.userId, userId))).returning();
+    if (!updatedDevice || updatedDevice.length === 0) {
+      return c.json({ message: 'Device not found or update failed' }, 404);
+    }
+    return c.json(updatedDevice[0]);
+  } catch (error) {
+    console.error(`Error updating device ${deviceId}:`, error);
+    return c.json({ message: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
+
+// DELETE /api/brew-devices/:id (Delete Device)
+app.delete('/:id', async (c) => {
+  const userId = c.get('userId');
+  const deviceId = c.req.param('id');
+  try {
+    const deletedDevice = await db.delete(brewDevicesTable).where(and(eq(brewDevicesTable.id, deviceId), eq(brewDevicesTable.userId, userId))).returning();
+    if (!deletedDevice || deletedDevice.length === 0) {
+      return c.json({ message: 'Device not found' }, 404);
+    }
+    return c.json({ message: 'Device deleted successfully' });
+  } catch (error) {
+    console.error(`Error deleting device ${deviceId}:`, error);
+    return c.json({ message: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
+
+// Export the Hono app handler
+export default handle(app); 
