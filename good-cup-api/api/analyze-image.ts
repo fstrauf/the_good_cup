@@ -1,37 +1,23 @@
-// Image Analysis handler for Vercel serverless function
-import { Hono } from 'hono';
-import { handle } from 'hono/vercel';
-// Keep OpenAI import as commonjs require for now
-const { OpenAI } = require('openai');
-// Import auth helpers (assuming path relative to api directory)
-import { verifyJwt, JWT_SECRET } from '../lib/auth';
+// api/analyze-image.ts - Handles POST for image analysis
 
-// Define types for Hono context variables
-type HonoEnv = {
-  Variables: {
-    userId: string; // Keep userId in context even if not directly used by analysis
-  }
-}
+import { VercelRequest, VercelResponse } from '@vercel/node';
+const { OpenAI } = require('openai');
+import { verifyJwt, JWT_SECRET } from '../lib/auth'; // Adjust path as needed
 
 // Helper function to extract JSON from potentially formatted string
 function extractJson(content: string | null | undefined): any | null {
   if (!content) return null;
-  content = content.trim(); // Trim whitespace first
-
-  // Check for markdown code fence (json specifically)
+  content = content.trim();
   const codeFenceMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
   if (codeFenceMatch && codeFenceMatch[1]) {
     content = codeFenceMatch[1].trim();
   } else {
-    // Fallback: Check for generic code fence
     const genericCodeFenceMatch = content.match(/```\s*([\s\S]*?)\s*```/);
     if (genericCodeFenceMatch && genericCodeFenceMatch[1]) {
       content = genericCodeFenceMatch[1].trim();
     }
-    // Fallback: Find first { and last }
-    else if (content.startsWith('{') && content.endsWith('}')) {
-      // Looks like raw JSON already, do nothing
-    } else {
+    else if (content.startsWith('{') && content.endsWith('}')) { /* Raw JSON */ }
+    else {
       const firstBrace = content.indexOf('{');
       const lastBrace = content.lastIndexOf('}');
       if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -39,70 +25,72 @@ function extractJson(content: string | null | undefined): any | null {
       }
     }
   }
-
   try {
     return JSON.parse(content);
   } catch (e) {
     console.error("Failed to parse extracted JSON content:", content, e);
-    return null; // Return null if parsing fails
+    return null;
   }
 }
 
-// Optional: Set to 'edge' if preferred
-// export const runtime = 'edge';
+export default async (req: VercelRequest, res: VercelResponse) => {
+    // --- CORS Handling ---
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-const app = new Hono<HonoEnv>().basePath('/api/analyze-image');
-
-// --- Authentication Middleware --- 
-// (Important for protecting the endpoint, even if userId isn't used in core logic)
-app.use('*' /* Apply to all routes */, async (c, next) => {
-  const authHeader = c.req.header('authorization');
-  if (!JWT_SECRET) {
-    console.error("[Auth Middleware] JWT_SECRET missing");
-    return c.json({ message: 'Server configuration error' }, 500);
-  }
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return c.json({ message: 'Authorization header missing or invalid' }, 401);
-  }
-  const token = authHeader.split(' ')[1];
-  try {
-    const decoded = verifyJwt(token, JWT_SECRET);
-    if (!decoded || !decoded.userId) {
-      return c.json({ message: 'Invalid token payload' }, 401);
-    }
-    c.set('userId', decoded.userId);
-    await next();
-  } catch (error) {
-    console.error("[Auth Middleware] Token verification failed:", error);
-    const isExpired = error instanceof Error && error.message === 'JwtTokenExpired';
-    return c.json({ message: isExpired ? 'Token expired' : 'Invalid token' }, 401);
-  }
-});
-
-// --- Route Handler --- 
-
-// POST /api/analyze-image
-app.post('/', async (c) => {
-  // const userId = c.get('userId'); // User ID available if needed later
-
-  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-  if (!OPENAI_API_KEY) {
-    console.error("analyze-image: Missing OpenAI API key");
-    return c.json({ error: 'Server configuration error: Missing OpenAI API key' }, 500);
-  }
-
-  try {
-    // Get image from request body using Hono context
-    const { image }: { image?: string } = await c.req.json();
-    
-    if (!image) {
-      return c.json({ error: 'Missing required parameter: image' }, 400);
+    if (req.method === 'OPTIONS') {
+        return res.status(204).end();
     }
 
-    // Keep the OpenAI client initialization and prompt logic
-    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+    // --- Authentication ---
+    // Although userId isn't used, keep auth check to protect the endpoint
+    const authHeader = req.headers.authorization;
+    let userId: string | null = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        try {
+            if (!JWT_SECRET) {
+                console.error("Auth error: JWT_SECRET missing");
+                return res.status(500).json({ message: 'Server configuration error' });
+            }
+            const decoded = verifyJwt(token, JWT_SECRET);
+            if (!decoded || !decoded.userId) {
+                return res.status(401).json({ message: 'Invalid token payload' });
+            }
+            userId = decoded.userId as string; // Store it even if unused for now
+        } catch (error) {
+            console.error("Token verification failed:", error);
+            const isExpired = error instanceof Error && error.message === 'JwtTokenExpired';
+            return res.status(401).json({ message: isExpired ? 'Token expired' : 'Invalid or expired token' });
+        }
+    } else {
+        return res.status(401).json({ message: 'Authorization header missing or invalid' });
+    }
+    // --- End Authentication ---
 
-    const prompt = `Analyze this coffee bean package image and extract the following information:
+    // Only handle POST requests
+    if (req.method !== 'POST') {
+        res.setHeader('Allow', ['POST']);
+        return res.status(405).json({ error: 'Method Not Allowed' });
+    }
+
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_API_KEY) {
+        console.error("analyze-image: Missing OpenAI API key");
+        return res.status(500).json({ error: 'Server configuration error: Missing OpenAI API key' });
+    }
+
+    try {
+        const { image }: { image?: string } = req.body || {};
+        
+        if (!image) {
+            return res.status(400).json({ error: 'Missing required parameter: image' });
+        }
+
+        const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+
+        const prompt = `Analyze this coffee bean package image and extract the following information:
 1. Bean Name: The name of the coffee beans
 2. Roast Level: The roast level (light, medium, dark, etc.)
 3. Flavor Notes: The flavor notes mentioned on the package
@@ -122,55 +110,50 @@ Return ONLY a JSON object with the following structure without any text outside 
 
 If any information is not visible or cannot be determined from the image, use null for that field.`;
 
-    // Keep the OpenAI API call logic
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-2025-04-14', // Consider making model configurable
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/jpeg;base64,${image}`,
-              },
-            },
-          ],
-        },
-      ],
-      max_tokens: 500,
-    });
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4.1-2025-04-14',
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: prompt },
+                        {
+                            type: 'image_url',
+                            image_url: {
+                                url: `data:image/jpeg;base64,${image}`,
+                            },
+                        },
+                    ],
+                },
+            ],
+            max_tokens: 500,
+        });
 
-    // Keep the response processing logic
-    const messageContent = response.choices[0]?.message?.content;
-    if (!messageContent) {
-      return c.json({ error: 'No message content received from OpenAI API' }, 500);
+        const messageContent = response.choices[0]?.message?.content;
+        if (!messageContent) {
+            return res.status(500).json({ error: 'No message content received from OpenAI API' });
+        }
+
+        const jsonResponse = extractJson(messageContent);
+
+        if (jsonResponse) {
+            return res.status(200).json(jsonResponse);
+        } else {
+            console.error('Failed to extract/parse OpenAI response:', messageContent);
+            return res.status(500).json({ 
+                error: 'Failed to parse AI response as JSON',
+                rawResponse: messageContent
+            });
+        }
+
+    } catch (error: any) {
+        console.error('Error processing analyze-image:', error);
+        const errorMessage = process.env.NODE_ENV === 'production' 
+            ? 'Internal Server Error' 
+            : error instanceof Error ? error.message : String(error);
+        return res.status(500).json({
+            error: 'Internal server error',
+            details: errorMessage
+        });
     }
-
-    const jsonResponse = extractJson(messageContent);
-
-    if (jsonResponse) {
-      // Return response using Hono context
-      return c.json(jsonResponse);
-    } else {
-      console.error('Failed to extract/parse OpenAI response:', messageContent);
-      // Return error using Hono context
-      return c.json({ 
-        error: 'Failed to parse AI response as JSON',
-        rawResponse: messageContent
-      }, 500);
-    }
-
-  } catch (error) {
-    console.error('Error processing analyze-image:', error);
-    // Return error using Hono context
-    return c.json({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : String(error)
-    }, 500);
-  }
-});
-
-// Export the Hono app handler for Vercel
-export default handle(app); 
+}; 

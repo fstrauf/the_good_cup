@@ -1,109 +1,112 @@
-// api/settings.ts
+// api/settings.ts - Handles GET and PUT for user settings
 
-import { Hono } from 'hono';
-import { handle } from 'hono/vercel';
+import { VercelRequest, VercelResponse } from '@vercel/node';
 import { db } from '../lib/db'; // Adjust path as needed
 import { userSettingsTable } from './schema'; // Adjust path as needed
 import { eq } from 'drizzle-orm';
 import { verifyJwt, JWT_SECRET } from '../lib/auth'; // Adjust path as needed
 
-// Define types for Hono context variables
-type HonoEnv = {
-  Variables: {
-    userId: string;
-  }
-}
+export default async (req: VercelRequest, res: VercelResponse) => {
+    // --- CORS Handling ---
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS'); // Only GET and PUT
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-// Optional: Set to 'edge' if preferred
-// export const runtime = 'edge';
-
-const app = new Hono<HonoEnv>().basePath('/api/settings');
-
-// --- Authentication Middleware ---
-app.use('*' /* Apply to all routes */, async (c, next) => {
-  const authHeader = c.req.header('authorization');
-  if (!JWT_SECRET) {
-    console.error("[Auth Middleware] JWT_SECRET missing");
-    return c.json({ message: 'Server configuration error' }, 500);
-  }
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return c.json({ message: 'Authorization header missing or invalid' }, 401);
-  }
-  const token = authHeader.split(' ')[1];
-  try {
-    const decoded = verifyJwt(token, JWT_SECRET);
-    if (!decoded || !decoded.userId) {
-      return c.json({ message: 'Invalid token payload' }, 401);
+    if (req.method === 'OPTIONS') {
+        return res.status(204).end();
     }
-    c.set('userId', decoded.userId);
-    await next();
-  } catch (error) {
-    console.error("[Auth Middleware] Token verification failed:", error);
-    const isExpired = error instanceof Error && error.message === 'JwtTokenExpired';
-    return c.json({ message: isExpired ? 'Token expired' : 'Invalid token' }, 401);
-  }
-});
 
-// --- Route Handlers ---
+    // --- Authentication ---
+    const authHeader = req.headers.authorization;
+    let userId: string | null = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        try {
+            if (!JWT_SECRET) {
+                console.error("Auth error: JWT_SECRET missing");
+                return res.status(500).json({ message: 'Server configuration error' });
+            }
+            const decoded = verifyJwt(token, JWT_SECRET);
+            if (!decoded || !decoded.userId) {
+                return res.status(401).json({ message: 'Invalid token payload' });
+            }
+            userId = decoded.userId as string;
+        } catch (error) {
+            console.error("Token verification failed:", error);
+            const isExpired = error instanceof Error && error.message === 'JwtTokenExpired';
+            return res.status(401).json({ message: isExpired ? 'Token expired' : 'Invalid or expired token' });
+        }
+    } else {
+        return res.status(401).json({ message: 'Authorization header missing or invalid' });
+    }
 
-// GET /api/settings (Get User Settings)
-app.get('/', async (c) => {
-  const userId = c.get('userId');
-  try {
-    const settings = await db.select()
-      .from(userSettingsTable)
-      .where(eq(userSettingsTable.userId, userId))
-      .limit(1);
+    if (!userId) {
+        return res.status(401).json({ message: 'Could not verify user identity' });
+    }
     
-    // Return empty object if no settings found, as frontend might expect this
-    return c.json(settings[0] || {}); 
-  } catch (error) {
-    console.error("Error fetching settings:", error);
-    return c.json({ message: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }, 500);
-  }
-});
-
-// PUT /api/settings (Update/Create User Settings - Upsert)
-app.put('/', async (c) => {
-  const userId = c.get('userId');
-  try {
-    const { defaultBrewDeviceId, defaultGrinderId }: { defaultBrewDeviceId?: string | null; defaultGrinderId?: string | null } = await c.req.json();
-
-    // Validate input (basic check)
-    if (defaultBrewDeviceId === undefined && defaultGrinderId === undefined) {
-        return c.json({ message: 'No settings provided to update' }, 400);
+    // --- DB Check ---
+    if (!db) {
+        console.error('[settings.ts] DB client not initialized.');
+        return res.status(500).json({ message: 'Database client failed to initialize' });
     }
 
-    const dataToUpsert = {
-        userId: userId,
-        defaultBrewDeviceId: defaultBrewDeviceId, // Will be null if not provided or explicitly null
-        defaultGrinderId: defaultGrinderId,   // Will be null if not provided or explicitly null
-        updatedAt: new Date(),
-    };
+    // --- Route Logic based on Method ---
+    try {
+        if (req.method === 'GET') {
+            // --- GET /api/settings (Get User Settings) ---
+            const settings = await db.select()
+                .from(userSettingsTable)
+                .where(eq(userSettingsTable.userId, userId))
+                .limit(1);
+            // Return empty object if no settings found
+            return res.status(200).json(settings[0] || {}); 
 
-    // Perform an upsert operation
-    const updatedSettings = await db.insert(userSettingsTable)
-      .values(dataToUpsert)
-      .onConflictDoUpdate({ 
-          target: userSettingsTable.userId, // Conflict on userId
-          set: { // Fields to update on conflict
-              defaultBrewDeviceId: dataToUpsert.defaultBrewDeviceId,
-              defaultGrinderId: dataToUpsert.defaultGrinderId,
-              updatedAt: dataToUpsert.updatedAt,
-           } 
-      })
-      .returning(); // Return the updated/inserted record
+        } else if (req.method === 'PUT') {
+            // --- PUT /api/settings (Update/Create User Settings - Upsert) ---
+            const { defaultBrewDeviceId, defaultGrinderId }: { defaultBrewDeviceId?: string | null; defaultGrinderId?: string | null } = req.body || {};
 
-    if (!updatedSettings || updatedSettings.length === 0) {
-      throw new Error("Failed to upsert settings.");
+            // Basic validation
+            if (defaultBrewDeviceId === undefined && defaultGrinderId === undefined) {
+                return res.status(400).json({ message: 'No settings provided to update' });
+            }
+             // More specific validation (ensure IDs are strings or null)
+             if (defaultBrewDeviceId !== undefined && typeof defaultBrewDeviceId !== 'string' && defaultBrewDeviceId !== null) {
+                 return res.status(400).json({ message: 'Invalid format for defaultBrewDeviceId' });
+             }
+             if (defaultGrinderId !== undefined && typeof defaultGrinderId !== 'string' && defaultGrinderId !== null) {
+                 return res.status(400).json({ message: 'Invalid format for defaultGrinderId' });
+             }
+
+            const dataToUpsert = {
+                userId: userId,
+                defaultBrewDeviceId: defaultBrewDeviceId, // Handles null if passed
+                defaultGrinderId: defaultGrinderId,   // Handles null if passed
+                updatedAt: new Date(),
+            };
+
+            const updatedSettings = await db.insert(userSettingsTable)
+                .values(dataToUpsert)
+                .onConflictDoUpdate({ target: userSettingsTable.userId, set: dataToUpsert })
+                .returning();
+
+            if (!updatedSettings || updatedSettings.length === 0) {
+                throw new Error("Failed to upsert settings.");
+            }
+            return res.status(200).json(updatedSettings[0]);
+
+        } else {
+            // Method Not Allowed
+            res.setHeader('Allow', ['GET', 'PUT']);
+            return res.status(405).json({ message: `Method ${req.method} Not Allowed for /api/settings` });
+        }
+    } catch (error: any) {
+        console.error(`[settings.ts] Error (${req.method} ${req.url}):`, error);
+        const errorMessage = process.env.NODE_ENV === 'production' 
+            ? 'Internal Server Error' 
+            : error instanceof Error ? error.message : String(error);
+        return res.status(500).json({ 
+            message: 'Internal Server Error', 
+            details: errorMessage
+        });
     }
-
-    return c.json(updatedSettings[0]);
-  } catch (error) {
-    console.error("Error updating settings:", error);
-    return c.json({ message: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }, 500);
-  }
-});
-
-// Export the Hono app handler
-export default handle(app); 
+}; 
