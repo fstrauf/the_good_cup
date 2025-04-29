@@ -1260,4 +1260,5 @@ app.route('/brews', brewsRoutes);
 // --- End Brews API Routes ---
 
 export { app }; // <-- Add named export for the Hono instance
+export const runtime = 'edge'; // <-- Restore Edge runtime
 export default handle(app); 
