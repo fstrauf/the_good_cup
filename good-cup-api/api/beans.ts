@@ -69,11 +69,33 @@ export default async (req: VercelRequest, res: VercelResponse) => {
             } else if (req.method === 'POST') {
                 // --- POST /api/beans (Add Bean) ---
                 console.log(`[beans.ts] POST invoked for user ${userId}`);
-                const { name, ...beanData }: { name?: string; [key: string]: any } = req.body || {};
+                const { name, roastedDate, ...otherBeanData }: { name?: string; roastedDate?: string | null; [key: string]: any } = req.body || {};
+                
                 if (!name) {
                     return res.status(400).json({ message: 'Bean name is required' });
                 }
-                const dataToInsert = { ...beanData, name, userId };
+
+                // Convert roastedDate string to Date object if present and valid
+                let roastedDateObj: Date | null = null;
+                if (roastedDate && typeof roastedDate === 'string') {
+                    const parsedDate = new Date(roastedDate);
+                    // Check if the parsed date is valid
+                    if (!isNaN(parsedDate.getTime())) {
+                        roastedDateObj = parsedDate;
+                    } else {
+                        console.warn(`[beans.ts] Received invalid roastedDate string: ${roastedDate}`);
+                        // Optionally return an error or proceed with null
+                        // return res.status(400).json({ message: 'Invalid roastedDate format' });
+                    }
+                }
+
+                const dataToInsert = { 
+                    ...otherBeanData, 
+                    name, 
+                    userId, 
+                    roastedDate: roastedDateObj // Use the Date object or null
+                };
+
                 const newBean = await db.insert(beansTable).values(dataToInsert).returning();
                 if (!newBean || newBean.length === 0) {
                     throw new Error("Failed to insert bean.");
