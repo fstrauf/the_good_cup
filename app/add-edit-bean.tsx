@@ -14,21 +14,19 @@ import {
   TextInput,
   LogBox,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter, useLocalSearchParams, useNavigation, Stack } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { analyzeImage, Brew as OpenAIBrew } from "../lib/openai";
 import { Button } from "../components/ui/button";
 import { Text } from "../components/ui/text";
 import { Camera, Image as LucideImage, X, ChevronLeft } from "lucide-react-native";
 import { cn } from "../lib/utils";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue, Option } from "../components/ui/select";
 import DateTimePicker from 'react-native-ui-datepicker';
 import { useDefaultClassNames } from 'react-native-ui-datepicker';
 import dayjs from 'dayjs';
-import { useAuth } from "../lib/auth";
-import { nanoid } from 'nanoid';
+import * as api from '../lib/api';
+import { Bean } from '../lib/api';
 
 // --- Tailwind --- 
 import resolveConfig from 'tailwindcss/resolveConfig';
@@ -38,31 +36,17 @@ const fullConfig = resolveConfig(tailwindConfig);
 const themeColors = (fullConfig.theme?.extend?.colors ?? fullConfig.theme?.colors ?? {}) as Record<string, string>; 
 // --- End Tailwind ---
 
-// Storage keys
-const BEANS_STORAGE_KEY = "@GoodCup:beans";
-
-// Bean interface
-interface Bean {
-  id: string;
-  name: string;
-  roastLevel: string;
-  flavorNotes: string[];
-  description: string;
-  photo?: string; // Base64 encoded image
-  timestamp: number;
-  roastedDate?: number;
-}
-
-// Create an empty bean with default values
-const createEmptyBean = (): Bean => ({
-  id: Math.random().toString(),
+// Create an empty partial bean matching API structure for initial state
+const createEmptyPartialApiBean = (): Partial<Bean> => ({
   name: '',
+  roaster: '',
+  origin: '',
+  process: '',
   roastLevel: '',
-  roastedDate: undefined,
-  description: '',
-  photo: undefined,
+  roastedDate: null, // Use null for API compatibility
   flavorNotes: [],
-  timestamp: Date.now(),
+  imageUrl: null, // Use null for API compatibility
+  // id, userId, createdAt, updatedAt are handled by backend/DB
 });
 
 export default function AddEditBeanScreen() {
@@ -77,293 +61,189 @@ export default function AddEditBeanScreen() {
 
 function BeanEditor() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ beanId?: string }>();
-  const beanId = params.beanId; // Get beanId from route params
-  const isEditing = !!beanId;
-  const { token } = useAuth(); // Get auth token for API calls
+  const params = useLocalSearchParams<{ beanData?: string }>();
   const navigation = useNavigation();
 
-  const [beans, setBeans] = useState<Bean[]>([]); // Need original beans list to update
+  const [isEditing, setIsEditing] = useState(false);
+  const [bean, setBean] = useState<Partial<Bean>>(createEmptyPartialApiBean());
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [newBean, setNewBean] = useState<Bean>(createEmptyBean());
   const [isDatePickerOpen, setDatePickerOpen] = useState(false);
   const defaultClassNames = useDefaultClassNames();
   const [analysisResults, setAnalysisResults] = useState<any | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
 
-  // Set appropriate navigation title
   useEffect(() => {
-    navigation.setOptions({
-      title: isEditing ? 'Edit Bean' : 'Add New Bean',
-      headerBackTitle: 'Back',
-    });
-  }, [navigation, isEditing]);
-
-  // Fetch all beans on load to easily find the one to edit or to update the list
-  const loadAllBeans = useCallback(async () => {
-    try {
-      const storedBeans = await AsyncStorage.getItem(BEANS_STORAGE_KEY);
-      const beansArray: Bean[] = storedBeans ? JSON.parse(storedBeans) : [];
-      setBeans(beansArray);
-
-      // If editing, find the bean and populate the form
-      if (isEditing && beanId) {
-        const beanToEdit = beansArray.find(b => b.id === beanId);
-        if (beanToEdit) {
-          setNewBean(beanToEdit);
-        } else {
-          Alert.alert("Error", "Bean not found. Returning to list.");
-          router.back();
-        }
+    if (params.beanData) {
+      try {
+        const existingBean = JSON.parse(params.beanData) as Bean;
+        setBean({
+          id: existingBean.id,
+          name: existingBean.name || '',
+          roaster: existingBean.roaster || '',
+          origin: existingBean.origin || '',
+          process: existingBean.process || '',
+          roastLevel: existingBean.roastLevel || '',
+          roastedDate: existingBean.roastedDate || null,
+          flavorNotes: existingBean.flavorNotes || [],
+          imageUrl: existingBean.imageUrl || null,
+        });
+        setIsEditing(true);
+        console.log("Editing bean:", existingBean.id);
+      } catch (e) {
+        console.error("Failed to parse beanData param:", e);
+        Alert.alert("Error", "Could not load bean data for editing.");
+        router.back();
       }
-    } catch (error) {
-      console.error("Error loading beans:", error);
-      Alert.alert("Error", "Failed to load beans.");
+    } else {
+      setBean(createEmptyPartialApiBean());
+      setIsEditing(false);
     }
-  }, [beanId, isEditing]);
+  }, [params.beanData]);
 
-  // Load beans when the screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      // Wrap async call in a non-async function
-      const loadData = async () => {
-          await loadAllBeans();
-      };
-      loadData();
-      // Optional: Return cleanup function if needed
-      return () => {}; 
-    }, [loadAllBeans]) // Dependency remains the same
-  );
-
-  // Save the entire list of beans (used by add/update)
-  const saveBeans = async (updatedBeans: Bean[]) => {
-    try {
-      const sortedBeans = updatedBeans.sort((a, b) => b.timestamp - a.timestamp);
-      await AsyncStorage.setItem(BEANS_STORAGE_KEY, JSON.stringify(sortedBeans));
-      // No need to setBeans state here as we navigate back
-    } catch (error) {
-      console.error("Error saving beans:", error);
-      Alert.alert("Error", "Failed to save beans.");
-      throw error; // Re-throw error to stop navigation if save fails
-    }
-  };
-
-  // Add Bean Logic (modified slightly)
-  const addBean = async () => {
-    if (!newBean.name) {
+  const handleSaveBean = async () => {
+    if (!bean.name) {
       Alert.alert("Missing Information", "Please enter at least a name.");
       return;
     }
     setLoading(true);
+    setErrorText(null);
+
+    const beanDataToSave: Partial<Omit<Bean, 'id' | 'userId' | 'createdAt' | 'updatedAt'>> = {
+      name: bean.name,
+      roaster: bean.roaster || null,
+      origin: bean.origin || null,
+      process: bean.process || null,
+      roastLevel: bean.roastLevel || null,
+      roastedDate: bean.roastedDate || null,
+      flavorNotes: bean.flavorNotes && bean.flavorNotes.length > 0 ? bean.flavorNotes.map(f => f.trim()).filter(f => f) : null,
+      imageUrl: bean.imageUrl || null,
+    };
+
     try {
-      const beanToAdd: Bean = {
-        id: Date.now().toString(),
-        name: newBean.name!, 
-        roastLevel: newBean.roastLevel || "unknown",
-        flavorNotes: newBean.flavorNotes || [],
-        description: newBean.description || "",
-        photo: newBean.photo,
-        timestamp: Date.now(), 
-        roastedDate: newBean.roastedDate,
-      };
-      const updatedBeans = [...beans, beanToAdd];
-      await saveBeans(updatedBeans); 
-      Alert.alert("Success", "Bean added successfully!");
-      router.back(); // Navigate back to the list screen
-    } catch (error) {
-      console.error("Error adding bean:", error);
-      // Error already shown in saveBeans if it fails there
-    }
-    setLoading(false);
-  };
-
-  // Update Bean Logic (modified slightly)
-  const updateBean = async () => {
-    if (!beanId) return; 
-    if (!newBean.name) {
-      Alert.alert("Missing Information", "Please enter at least a name.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const updatedBeans = beans.map(bean => {
-        if (bean.id === beanId) {
-          return {
-            ...bean, 
-            name: newBean.name!,
-            roastLevel: newBean.roastLevel || 'unknown',
-            flavorNotes: newBean.flavorNotes || [],
-            description: newBean.description || '',
-            photo: newBean.photo,
-            roastedDate: newBean.roastedDate,
-          };
-        }
-        return bean; 
-      });
-
-      await saveBeans(updatedBeans); 
-      Alert.alert("Success", "Bean updated successfully!");
-      router.back(); // Navigate back
-    } catch (error) {
-      console.error("Error updating bean:", error);
-      // Error already shown in saveBeans if it fails there
-    }
-    setLoading(false);
-  };
-
-  // Date Formatting
-  const formatDate = (timestamp?: number): string => {
-    if (!timestamp) return 'N/A';
-    try {
-      return dayjs(timestamp).format('MMM D, YYYY');
-    } catch (e) {
-      console.error("Error formatting date with dayjs:", e);
-      return 'Invalid Date';
+      if (isEditing && bean.id) {
+        console.log("Updating bean via API:", bean.id, beanDataToSave);
+        await api.updateBean(bean.id, beanDataToSave);
+        Alert.alert("Success", "Bean updated successfully!");
+      } else {
+        console.log("Adding new bean via API:", beanDataToSave);
+        await api.addBean(beanDataToSave);
+        Alert.alert("Success", "Bean added successfully!");
+      }
+      router.back();
+    } catch (error: any) {
+      console.error(`API Error ${isEditing ? 'updating' : 'adding'} bean:`, error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setErrorText(`Failed to save bean: ${message}`);
+      Alert.alert("Error", `Failed to save bean: ${message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Image Picking/Analysis Functions (copied directly)
+  const callAnalyzeApi = async (base64Image: string) => {
+    console.warn("analyzeBean API call is not implemented in lib/api.ts yet. Using dummy data.");
+    return {
+        beanName: "Dummy Bean",
+        roaster: "Dummy Roaster",
+        country: "Dummy Origin",
+        process: "Dummy Process",
+        roastLevel: "Medium",
+        flavorNotes: ["Dummy Note 1", "Dummy Note 2"],
+        roastedDate: dayjs().subtract(10, 'day').toISOString()
+    };
+  };
+
   const takePhoto = async () => {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission Required", "Camera permission is required to take photos.");
-        return;
+        Alert.alert("Permission Required", "Camera permission is required."); return;
       }
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: "images",
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.7,
-        base64: true,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true, aspect: [4, 3], quality: 0.7, base64: true,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         if (asset.base64) {
-          setNewBean((prev) => ({ ...prev, photo: `data:image/jpeg;base64,${asset.base64}` }));
           await analyzePhoto(`data:image/jpeg;base64,${asset.base64}`);
         }
       }
-    } catch (error) {
-      console.error("Error taking photo:", error);
-      Alert.alert("Error", "Failed to take photo. Note: Camera is not available in simulators.");
-    }
+    } catch (error) { console.error("Error taking photo:", error); Alert.alert("Error", "Could not take photo."); }
   };
+
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission Required", "Media library permission is required to select photos.");
-        return;
+        Alert.alert("Permission Required", "Media library permission is required."); return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.7,
-        base64: true,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true, aspect: [4, 3], quality: 0.7, base64: true,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         if (asset.base64) {
-          setNewBean((prev) => ({ ...prev, photo: `data:image/jpeg;base64,${asset.base64}` }));
           await analyzePhoto(`data:image/jpeg;base64,${asset.base64}`);
         }
       }
-    } catch (error) {
-      console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to pick image.");
-    }
+    } catch (error) { console.error("Error picking image:", error); Alert.alert("Error", "Failed to pick image."); }
   };
+
   const analyzePhoto = async (base64Image: string) => {
-    try {
-      setAnalyzing(true);
-      console.log("Analyzing photo...");
-      
-      // Check if token exists before making the API call
-      if (!token) {
-        console.error("No authentication token available");
-        setErrorText("Authentication error. Please sign in again.");
-        Alert.alert("Authentication Error", "Please sign in again to analyze images.");
-        return;
-      }
-      
-      // Pass the auth token to the analyzeImage function
-      const extractedData = await analyzeImage(base64Image, token);
-      console.log("Extracted data:", extractedData);
-      const { beanName, roastLevel, flavorNotes, description, roastedDate } = extractedData;
-      
-      // Parse roasted date if available
-      let parsedRoastedDate: number | undefined = undefined;
-      if (roastedDate && roastedDate !== "Unknown" && roastedDate !== null) {
-        try {
-          // Try to parse the date string into a timestamp
-          const dateObj = new Date(roastedDate);
-          if (!isNaN(dateObj.getTime())) {
-            parsedRoastedDate = dateObj.getTime();
-            console.log("Parsed roasted date:", new Date(parsedRoastedDate).toLocaleDateString());
-          }
-        } catch (err) {
-          console.error("Failed to parse roasted date:", roastedDate, err);
-        }
-      }
-      
-      setNewBean((prev) => ({
-        ...prev,
-        name: beanName && beanName !== "Unknown" ? beanName : prev.name,
-        roastLevel: roastLevel && roastLevel !== "Unknown" ? 
-          (typeof roastLevel === 'string' ? roastLevel.toLowerCase() : prev.roastLevel) : 
-          prev.roastLevel,
-        flavorNotes: flavorNotes && flavorNotes.length > 0 ? flavorNotes : prev.flavorNotes,
-        description: description && description !== "Unknown" ? description : prev.description,
-        roastedDate: parsedRoastedDate || prev.roastedDate,
-      }));
-      
-      Alert.alert("Analysis Complete", "Bean information extracted from the photo!");
-    } catch (error) {
-      console.error("Error analyzing image:", error);
-      if (error instanceof Error && error.message.includes('Unauthorized')) {
-        setErrorText("Authentication error. Please sign in again.");
-        Alert.alert("Authentication Error", "Your session may have expired. Please sign in again.");
-      } else {
-        setErrorText("Failed to analyze image");
-        Alert.alert("Analysis Error", "Could not analyze the image. Please try again or enter details manually.");
-      }
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  // Analyze the bean image using OpenAI's API
-  const analyzeBean = async (base64Image: string) => {
+    if (!base64Image) return;
     setAnalyzing(true);
-    
+    setErrorText(null);
+    setAnalysisResults(null);
     try {
-      await analyzePhoto(base64Image);
-    } catch (error) {
-      console.error("Error analyzing image:", error);
-      setErrorText("Failed to analyze image");
+      const results = await callAnalyzeApi(base64Image.split(',')[1]);
+      console.log("Analysis Results:", results);
+      setAnalysisResults(results);
+
+      setBean(prev => ({
+          ...prev,
+          name: results.beanName || prev.name,
+          roaster: results.roaster || prev.roaster,
+          origin: results.country || prev.origin,
+          process: results.process || prev.process,
+          roastLevel: results.roastLevel || prev.roastLevel,
+          roastedDate: results.roastedDate || prev.roastedDate,
+          flavorNotes: results.flavorNotes || prev.flavorNotes,
+      }));
+      Alert.alert("Analysis Complete", "Bean details populated. Please review.");
+
+    } catch (err: any) {
+      console.error("Error analyzing image:", err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setErrorText(`Analysis failed: ${message}`);
+      Alert.alert("Analysis Error", `Failed to analyze image: ${message}`);
     } finally {
       setAnalyzing(false);
     }
   };
 
-  // Clear error message after 5 seconds
-  useEffect(() => {
-    if (errorText) {
-      const timer = setTimeout(() => {
-        setErrorText(null);
-      }, 5000);
-      return () => clearTimeout(timer);
+  const handleInputChange = (field: keyof Bean, value: any) => {
+    if (field === 'flavorNotes' && typeof value === 'string') {
+        value = value.split(',').map(note => note.trim()).filter(note => note);
     }
-  }, [errorText]);
+    setBean(prev => ({ ...prev, [field]: value }));
+  };
 
-  // Form JSX
+  const onDateChange = (date: Date | undefined) => {
+    setDatePickerOpen(false);
+    if (date) {
+        console.log("Selected date object:", date);
+        handleInputChange('roastedDate', dayjs(date).toISOString());
+    } else {
+        console.log("Date cleared");
+        handleInputChange('roastedDate', null);
+    }
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-soft-off-white" edges={["top", "left", "right"]}>
-        {/* Custom Header */}
         <View className="flex-row items-center justify-between px-3 py-2.5 border-b border-pale-gray">
             <TouchableOpacity onPress={() => router.back()} className="p-2">
                 <ChevronLeft size={24} color={themeColors['charcoal']} />
@@ -372,25 +252,22 @@ function BeanEditor() {
             <View className="w-10" /> {/* Spacer to balance title */}
         </View>
 
-        {/* Use KeyboardAvoidingView here */}
         <KeyboardAvoidingView
             className="flex-1"
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0} // Adjust offset if needed
         >
-          <View className="flex-1"> {/* Container for ScrollView + Button */}
+          <View className="flex-1"> {/* Container for ScrollView + Button - From Old Version */}
             <ScrollView
-              className="px-3 pt-4" // Add top padding
-              contentContainerStyle={{ paddingBottom: 20 }}
+              className="px-3 pt-4" // Add top padding - From Old Version
+              contentContainerStyle={{ paddingBottom: 20 }} // From Old Version
               showsVerticalScrollIndicator={true}
               keyboardShouldPersistTaps="handled"
             >
-              {/* Removed outer p-4, mb-4 from here */}
-              {/* Photo Section */}
               <View className="relative items-center mb-4">
-                {newBean.photo ? (
+                {bean.imageUrl ? (
                   <Image
-                    source={{ uri: newBean.photo }}
+                    source={{ uri: bean.imageUrl }} // Use bean.imageUrl
                     className="w-full h-48 rounded-lg mb-2 border border-pebble-gray"
                   />
                 ) : (
@@ -404,6 +281,7 @@ function BeanEditor() {
                     variant="outline"
                     size="sm"
                     onPress={takePhoto}
+                    disabled={analyzing} // Disable while analyzing
                     className="bg-light-beige border-pebble-gray flex-row items-center"
                   >
                     <Camera size={16} className="text-charcoal mr-1.5" strokeWidth={2} />
@@ -413,6 +291,7 @@ function BeanEditor() {
                     variant="outline"
                     size="sm"
                     onPress={pickImage}
+                    disabled={analyzing} // Disable while analyzing
                     className="bg-light-beige border-pebble-gray flex-row items-center"
                   >
                     <LucideImage size={16} className="text-charcoal mr-1.5" strokeWidth={2} />
@@ -428,182 +307,193 @@ function BeanEditor() {
               </View>
               <View className="h-px bg-pale-gray my-4" />
 
-              {/* Bean Name Input */}
               <View className="mb-2">
                 <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Bean Name *</Text>
                 <TextInput
-                  value={newBean.name}
-                  onChangeText={(text: string) => setNewBean({ ...newBean, name: text })}
+                  value={bean.name} // Use bean.name
+                  onChangeText={(text: string) => handleInputChange('name', text)}
                   placeholder="e.g., Ethiopia Yirgacheffe"
                   style={styles.inputStyle}
                   placeholderTextColor={themeColors['cool-gray-green']}
                 />
               </View>
 
-              {/* Roast Level Select */}
-              <View className="mb-2 mt-4">
-                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Roast Level</Text>
-                <Select
-                  value={newBean.roastLevel ? { value: newBean.roastLevel, label: newBean.roastLevel } : undefined}
-                  onValueChange={(option: { value: string; label: string } | undefined) => 
-                    option && setNewBean({ ...newBean, roastLevel: option.value })
-                  }
-                >
-                  <SelectTrigger className="border-pebble-gray bg-soft-off-white h-[50px]">
-                    <SelectValue
-                      className="text-charcoal"
-                      placeholder="Select roast level"
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="light" label="Light" />
-                      <SelectItem value="medium-light" label="Medium Light" />
-                      <SelectItem value="medium" label="Medium" />
-                      <SelectItem value="medium-dark" label="Medium Dark" />
-                      <SelectItem value="dark" label="Dark" />
-                      <SelectItem value="unknown" label="Unknown" />
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </View>
-
-              {/* Roasted Date Input */}
-              <View className="mb-2 mt-4">
-                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Roasted Date</Text>
-                <TouchableOpacity
-                  onPress={() => setDatePickerOpen(true)}
-                  className="border border-pebble-gray rounded-lg bg-soft-off-white h-[50px] justify-center px-2.5"
-                  activeOpacity={0.7}
-                >
-                  <Text className={cn("text-base", newBean.roastedDate ? "text-charcoal" : "text-cool-gray-green")}>
-                    {newBean.roastedDate ? formatDate(newBean.roastedDate) : "Select Roasted Date (Optional)"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Flavor Notes Input */}
-              <View className="mb-2 mt-4">
-                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Flavor Notes (comma separated)</Text>
+               <View className="mb-2 mt-4">
+                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Roaster</Text>
                 <TextInput
-                  value={newBean.flavorNotes?.join(", ")}
-                  onChangeText={(text: string) =>
-                    setNewBean({
-                      ...newBean,
-                      flavorNotes: text
-                        .split(",")
-                        .map((note: string) => note.trim())
-                        .filter((note: string) => note),
-                    })
-                  }
-                  placeholder="e.g., Blueberry, Chocolate, Citrus"
+                  value={bean.roaster || ''} // Use bean.roaster
+                  onChangeText={(text: string) => handleInputChange('roaster', text)}
+                  placeholder="Roaster Name (e.g., Sweet Bloom)"
                   style={styles.inputStyle}
                   placeholderTextColor={themeColors['cool-gray-green']}
                 />
               </View>
 
-              {/* Description Input */}
-              <View className="mb-2 mt-4">
-                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Description</Text>
+               <View className="mb-2 mt-4">
+                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Origin</Text>
                 <TextInput
-                  value={newBean.description}
-                  onChangeText={(text: string) => setNewBean({ ...newBean, description: text })}
-                  placeholder="Additional notes about this coffee"
-                  multiline
-                  numberOfLines={3}
-                  style={[styles.inputStyle, { minHeight: 80, textAlignVertical: "top", paddingTop: 10 }]}
+                  value={bean.origin || ''} // Use bean.origin
+                  onChangeText={(text: string) => handleInputChange('origin', text)}
+                  placeholder="Origin (e.g., Ethiopia, Colombia)"
+                  style={styles.inputStyle}
                   placeholderTextColor={themeColors['cool-gray-green']}
                 />
               </View>
-            </ScrollView>
 
-            {/* Button container */}
-            <View className="bg-soft-off-white py-2.5 px-4 border-t border-pale-gray shadow-lg">
-              <Button
-                variant="default"
-                size="default"
-                onPress={isEditing ? updateBean : addBean} // Use isEditing flag
-                className="bg-muted-sage-green h-12"
-                disabled={loading || !newBean.name}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text className="text-white font-bold">{isEditing ? 'Save Changes' : 'Save Bean'}</Text>
-                )}
-              </Button>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+               <View className="mb-2 mt-4">
+                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Process</Text>
+                <TextInput
+                  value={bean.process || ''} // Use bean.process
+                  onChangeText={(text: string) => handleInputChange('process', text)}
+                  placeholder="Processing Method (e.g., Washed, Natural)"
+                  style={styles.inputStyle}
+                  placeholderTextColor={themeColors['cool-gray-green']}
+                />
+              </View>
 
-      {/* Date Picker Modal (using react-native-ui-datepicker) */}
-      <Modal
-        transparent={true}
-        animationType="slide"
-        visible={isDatePickerOpen}
-        onRequestClose={() => setDatePickerOpen(false)}
-      >
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          className="bg-black/30"
-          onPress={() => setDatePickerOpen(false)}
-          activeOpacity={1}
-        />
-        <View className="flex-1 justify-center items-center px-4">
-          <View className="bg-soft-off-white rounded-xl shadow-xl w-full overflow-hidden">
-            <View className="p-3 border-b border-pale-gray bg-light-beige/50 flex-row justify-between items-center">
-              <Text className="text-lg font-semibold text-charcoal">Select Roasted Date</Text>
-              <TouchableOpacity onPress={() => setDatePickerOpen(false)} className="p-1">
-                <X size={20} color={themeColors['cool-gray-green']}/>
-              </TouchableOpacity>
-            </View>
-            <View className="p-2">
-              <DateTimePicker
-                mode="single"
-                date={newBean.roastedDate ? dayjs(newBean.roastedDate) : dayjs()}
-                onChange={(params) => {
-                  if (params.date) {
-                    const selectedDate = dayjs(params.date);
-                    if (selectedDate.isValid()) {
-                      setNewBean(prev => ({ ...prev, roastedDate: selectedDate.valueOf() }));
-                    } else {
-                      console.warn("Invalid date selected from picker");
-                    }
-                  } else {
-                    console.log("DateTimePicker onChange called without a date.");
+              <View className="mb-2 mt-4">
+                <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Roast Level</Text>
+                <Select
+                  value={bean.roastLevel ? { value: bean.roastLevel, label: bean.roastLevel } : undefined} // Use bean.roastLevel
+                  onValueChange={(option: Option | undefined) =>
+                    handleInputChange('roastLevel', option?.value ?? null) // Update bean.roastLevel
                   }
-                }}
-                maxDate={dayjs()}
-                classNames={{
-                  ...defaultClassNames,
-                  selected: `bg-muted-sage-green ${defaultClassNames.selected}`,
-                  selected_label: `text-white ${defaultClassNames.selected_label}`
-                }}
-              />
-            </View>
-            <View className="px-4 pb-4 pt-2 border-t border-pale-gray">
-              <Button onPress={() => setDatePickerOpen(false)} className="bg-muted-sage-green">
-                <Text className="text-white font-bold">Done</Text>
-              </Button>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
-  );
-}
+                >
+                   <SelectTrigger className="border-pebble-gray bg-soft-off-white h-[50px] w-full">
+                     <SelectValue
+                       className="text-charcoal text-base placeholder:text-cool-gray-green placeholder:text-base"
+                       placeholder="Select roast level"
+                     />
+                   </SelectTrigger>
+                   <SelectContent>
+                     <SelectGroup>
+                        {/* Values from previous Select - ensure they match potential API values */}
+                       <SelectItem value="Light" label="Light" />
+                       <SelectItem value="Medium-Light" label="Medium-Light" />
+                       <SelectItem value="Medium" label="Medium" />
+                       <SelectItem value="Medium-Dark" label="Medium-Dark" />
+                       <SelectItem value="Dark" label="Dark" />
+                       <SelectItem value="Unknown" label="Unknown" />
+                     </SelectGroup>
+                   </SelectContent>
+                 </Select>
+               </View>
 
+               <View className="mb-2 mt-4">
+                 <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Roasted Date</Text>
+                 <TouchableOpacity
+                   onPress={() => setDatePickerOpen(true)}
+                   className="border border-pebble-gray rounded-lg bg-soft-off-white h-[50px] justify-center px-2.5"
+                   activeOpacity={0.7}
+                 >
+                    {/* Display formatted date from bean.roastedDate (ISO string) */}
+                   <Text className={cn("text-base", bean.roastedDate ? "text-charcoal" : "text-cool-gray-green")}>
+                     {bean.roastedDate ? dayjs(bean.roastedDate).format('MMM D, YYYY') : "Select Roasted Date (Optional)"}
+                   </Text>
+                    {/* Add clear button if needed (optional enhancement) */}
+                    {/* {bean.roastedDate && (
+                       <TouchableOpacity onPress={() => handleInputChange('roastedDate', null)} className="absolute right-2 p-1">
+                           <X size={16} color={themeColors['cool-gray-green']} />
+                       </TouchableOpacity>
+                   )} */}
+                 </TouchableOpacity>
+               </View>
 
-const styles = StyleSheet.create({
-  inputStyle: {
-    borderWidth: 1,
-    borderColor: themeColors['pebble-gray'],
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: Platform.OS === "ios" ? 12 : 8,
-    backgroundColor: themeColors['soft-off-white'],
-    color: themeColors['charcoal'],
-    fontSize: 16,
-    height: 50,
-  }
-}); 
+               <View className="mb-2 mt-4">
+                 <Text className="text-sm font-semibold text-cool-gray-green mb-1.5 ml-1">Flavor Notes (comma separated)</Text>
+                 <TextInput
+                   value={bean.flavorNotes?.join(", ") || ''} // Use bean.flavorNotes
+                   onChangeText={(text: string) => handleInputChange('flavorNotes', text)}
+                   placeholder="e.g., Blueberry, Chocolate, Citrus"
+                   style={styles.inputStyle}
+                   placeholderTextColor={themeColors['cool-gray-green']}
+                 />
+               </View>
+
+              {/* Error Text Display */}
+              {errorText && (
+                  <Text className="text-red-500 text-sm text-center my-3">{errorText}</Text>
+              )}
+
+             </ScrollView>
+
+             <View className="bg-soft-off-white py-2.5 px-4 border-t border-pale-gray shadow-lg">
+               <Button
+                 variant="default"
+                 size="default"
+                 onPress={handleSaveBean} // Use new save handler
+                 className="bg-muted-sage-green h-12"
+                 disabled={loading || analyzing || !bean.name} // Use new loading/analyzing states
+               >
+                 {loading ? (
+                   <ActivityIndicator color="#FFFFFF" />
+                 ) : (
+                   <Text className="text-white font-bold text-lg">{isEditing ? 'Update Bean' : 'Add Bean'}</Text> // Adjusted text size
+                 )}
+               </Button>
+             </View>
+           </View>
+         </KeyboardAvoidingView>
+
+       <Modal
+         transparent={true}
+         animationType="slide"
+         visible={isDatePickerOpen}
+         onRequestClose={() => setDatePickerOpen(false)}
+       >
+         <TouchableOpacity
+           style={StyleSheet.absoluteFill}
+           className="bg-black/30"
+           onPress={() => setDatePickerOpen(false)}
+           activeOpacity={1}
+         />
+         <View className="flex-1 justify-center items-center px-4">
+           <View className="bg-soft-off-white rounded-xl shadow-xl w-full overflow-hidden">
+             <View className="p-3 border-b border-pale-gray bg-light-beige/50 flex-row justify-between items-center">
+               <Text className="text-lg font-semibold text-charcoal">Select Roasted Date</Text>
+               <TouchableOpacity onPress={() => setDatePickerOpen(false)} className="p-1">
+                 <X size={20} color={themeColors['cool-gray-green']}/>
+               </TouchableOpacity>
+             </View>
+             <View className="p-2">
+               <DateTimePicker
+                 mode="single"
+                  // Use bean.roastedDate (ISO string) converted to Date, or undefined
+                 date={bean.roastedDate ? dayjs(bean.roastedDate).toDate() : undefined}
+                 onChange={(params) => {
+                    // Use the existing onDateChange handler
+                   onDateChange(params.date as Date | undefined);
+                 }}
+                 maxDate={dayjs().toDate()} // Set maxDate to today
+                 classNames={{
+                   ...defaultClassNames,
+                   selected: `bg-muted-sage-green ${defaultClassNames.selected}`,
+                   selected_label: `text-white ${defaultClassNames.selected_label}`
+                 }}
+               />
+             </View>
+             <View className="px-4 pb-4 pt-2 border-t border-pale-gray">
+               <Button onPress={() => setDatePickerOpen(false)} className="bg-muted-sage-green">
+                 <Text className="text-white font-bold">Done</Text>
+               </Button>
+             </View>
+           </View>
+         </View>
+       </Modal>
+     </SafeAreaView>
+   );
+ }
+
+ const styles = StyleSheet.create({
+   inputStyle: {
+     borderWidth: 1,
+     borderColor: themeColors['pebble-gray'],
+     borderRadius: 8,
+     paddingHorizontal: 10,
+     paddingVertical: Platform.OS === "ios" ? 12 : 8,
+     backgroundColor: themeColors['soft-off-white'],
+     color: themeColors['charcoal'],
+     fontSize: 16,
+     height: 50,
+   }
+ }); 

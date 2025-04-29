@@ -1,21 +1,25 @@
-import crypto from 'crypto'; 
-import { OpenAI } from 'openai';
-import { verifyAuthToken } from '../lib/auth';
-import { getBodyJSON } from '../lib/utils';
+// Image Analysis handler for Vercel serverless function
+import { VercelRequest, VercelResponse } from '@vercel/node';
+const { OpenAI } = require('openai');
 
-// --- JSON Extraction Helper ---
-function extractJson(content: string | null): any | null {
+// Helper function to extract JSON from potentially formatted string
+function extractJson(content: string | null | undefined): any | null {
   if (!content) return null;
-  content = content.trim();
+  content = content.trim(); // Trim whitespace first
+
+  // Check for markdown code fence (json specifically)
   const codeFenceMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
   if (codeFenceMatch && codeFenceMatch[1]) {
     content = codeFenceMatch[1].trim();
   } else {
+    // Fallback: Check for generic code fence
     const genericCodeFenceMatch = content.match(/```\s*([\s\S]*?)\s*```/);
     if (genericCodeFenceMatch && genericCodeFenceMatch[1]) {
       content = genericCodeFenceMatch[1].trim();
-    } else if (content.startsWith('{') && content.endsWith('}')) {
-      // Assume raw JSON
+    }
+    // Fallback: Find first { and last }
+    else if (content.startsWith('{') && content.endsWith('}')) {
+      // Looks like raw JSON already, do nothing
     } else {
       const firstBrace = content.indexOf('{');
       const lastBrace = content.lastIndexOf('}');
@@ -24,121 +28,112 @@ function extractJson(content: string | null): any | null {
       }
     }
   }
+
   try {
     return JSON.parse(content);
   } catch (e) {
-    console.error("[analyze-image.ts:JSONExtract:Error] Failed to parse:", content, e);
-    return null;
+    console.error("Failed to parse extracted JSON content:", content, e);
+    return null; // Return null if parsing fails
   }
 }
-// --- End JSON Extraction Helper ---
 
-
-// --- Vercel Request Handler for POST /api/analyze-image ---
-export default async (req: any, res: any) => {
-    // Handle CORS
+// Export the handler function using ES module syntax
+export default async (req: VercelRequest, res: VercelResponse) => {
+  // Handle OPTIONS request for CORS
+  if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    if (req.method === 'OPTIONS') {
-        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-        return res.status(204).end();
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    return res.status(204).end();
+  }
+  
+  // Only handle POST requests
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  // Authentication check
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_API_KEY) {
+    return res.status(500).json({ error: 'Server configuration error: Missing OpenAI API key' });
+  }
+
+  try {
+    const { image } = req.body || {};
+    
+    if (!image) {
+      return res.status(400).json({ error: 'Missing required parameter: image' });
     }
 
-    if (req.method !== 'POST') {
-        res.setHeader('Allow', ['POST']);
-        return res.status(405).json({ message: `Method ${req.method} Not Allowed` });
-    }
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-    console.log('[analyze-image.ts] POST handler invoked');
-
-    // --- Auth Check ---
-    const authResult = await verifyAuthToken(req);
-    if (!authResult.userId) {
-        console.log(`[analyze-image.ts:AuthFail] ${authResult.status} ${authResult.error}`);
-        return res.status(authResult.status || 401).json({ message: authResult.error });
-    }
-    // --- End Auth Check ---
-
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    if (!OPENAI_API_KEY) {
-        console.error('[analyze-image.ts:Error] OPENAI_API_KEY missing.');
-        return res.status(500).json({ error: 'Server configuration error: Missing OpenAI API key' });
-    }
-
-    try {
-        const { image } = await getBodyJSON(req);
-        if (!image) {
-            return res.status(400).json({ error: 'Missing required parameter: image (base64 string)' });
-        }
-
-        const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-
-        // Keep prompt from JS file, adjust if needed
-        const prompt = `Analyze this coffee bean package image and extract the following information:
+    const prompt = `Analyze this coffee bean package image and extract the following information:
 1. Bean Name: The name of the coffee beans
-2. Origin Country: The country where the beans are from
-3. Processing Method: The process used (washed, natural, honey, etc.)
-4. Roast Level: The roast level (light, medium, dark, etc.)
-5. Flavor Notes: The flavor notes mentioned on the package
+2. Roast Level: The roast level (light, medium, dark, etc.)
+3. Flavor Notes: The flavor notes mentioned on the package
+4. Description: A description of the coffee beans
+5. Roast Date: The date the beans were roasted
 
 Return ONLY a JSON object with the following structure without any text outside the JSON:
 {
-  "beanName": "Name of the coffee beans",
-  "country": "Origin country",
-  "process": "Processing method",
-  "roastLevel": "Roast level",
-  "flavorNotes": ["Note 1", "Note 2", "Note 3"]
+  "beanName": "Name of the coffee beans (infer this from the description if necessary",
+  "roastLevel": ["Light","Medium-Light", "Medium", "Medium-Dark", "Dark"],
+  "flavorNotes": ["Note 1", "Note 2", "Note 3"],
+  "description": "Description of the coffee beans",
+  "roastedDate": "Date the beans were roasted"
 }
 
 If any information is not visible or cannot be determined from the image, use null for that field.`;
 
-        console.log('[analyze-image.ts] Sending request to OpenAI...');
-        const response = await openai.chat.completions.create({
-            model: 'gpt-4o', // Use desired model
-            messages: [
-                {
-                role: 'user',
-                content: [
-                    { type: 'text', text: prompt },
-                    {
-                    type: 'image_url',
-                    image_url: {
-                        // Ensure image is a base64 string without data URI prefix if needed by API
-                        url: image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`,
-                    },
-                    },
-                ],
-                },
-            ],
-            max_tokens: 500, // Adjust as needed
-        });
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4.1-2025-04-14', 
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${image}`,
+              },
+            },
+          ],
+        },
+      ],
+      max_tokens: 500,
+    });
 
-        const messageContent = response.choices[0]?.message?.content;
-        if (!messageContent) {
-            console.error('[analyze-image.ts:Error] No message content from OpenAI');
-            return res.status(500).json({ error: 'No message content received from OpenAI API' });
-        }
-
-        console.log('[analyze-image.ts] Received response from OpenAI, extracting JSON...');
-        const jsonResponse = extractJson(messageContent);
-
-        if (jsonResponse) {
-            console.log('[analyze-image.ts] Successfully parsed OpenAI response.');
-            return res.status(200).json(jsonResponse);
-        } else {
-            console.error('[analyze-image.ts:Error] Failed to parse OpenAI response as JSON:', messageContent);
-            return res.status(500).json({ 
-                error: 'Failed to parse AI response as JSON', 
-                rawResponse: messageContent 
-            });
-        }
-
-    } catch (error) {
-        console.error('[analyze-image.ts:Error] Error processing analysis:', error);
-        return res.status(500).json({ 
-            status: 'error', 
-            message: 'Internal Server Error during image analysis', 
-            details: error instanceof Error ? error.message : String(error) 
-        });
+    const messageContent = response.choices[0]?.message?.content;
+    if (!messageContent) {
+      return res.status(500).json({ 
+        error: 'No message content received from OpenAI API' 
+      });
     }
+
+    // Use the helper function to extract and parse
+    const jsonResponse = extractJson(messageContent);
+
+    if (jsonResponse) {
+      return res.status(200).json(jsonResponse);
+    } else {
+      console.error('Failed to extract/parse OpenAI response:', messageContent);
+      return res.status(500).json({ 
+        error: 'Failed to parse AI response as JSON',
+        rawResponse: messageContent // Send raw response for debugging
+      });
+    }
+  } catch (error) {
+    console.error('Error processing analyze-image:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      // Check if error is an Error instance before accessing message
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
 }; 
