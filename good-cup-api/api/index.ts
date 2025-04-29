@@ -8,22 +8,27 @@ import OpenAI from 'openai';
 import { drizzle } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
 // Import tables from schema.ts
-import * as schema from './schema'; // Import all exports as 'schema'
+import * as schema from './schema'; // <-- RESTORE SCHEMA IMPORT
 // We also need the usersTable specifically for some queries, let's import it directly
 import { usersTable } from './schema';
 
 // Create the DB client directly in this file
 const connectionString = process.env.DATABASE_URL;
+console.log('DATABASE_URL retrieved:', connectionString ? 'Exists' : 'MISSING!');
+
 if (!connectionString) {
+  console.error('FATAL: DATABASE_URL environment variable is not set.');
   throw new Error('DATABASE_URL environment variable is not set.');
 }
-const sql = neon(connectionString);
-console.log('Neon client initialized.'); // Log after Neon init
 
-console.log('Initializing Drizzle client...'); // Log before Drizzle init
+console.log('Initializing Neon client...');
+const sql = neon(connectionString);
+console.log('Neon client initialized.');
+
+console.log('Initializing Drizzle client...');
 // Use the imported schema object for the client
-// const db = drizzle(sql, { schema, logger: true }); // <-- COMMENT OUT for testing
-console.log('Drizzle client initialization SKIPPED at top level.'); // Log after Drizzle init
+const db = drizzle(sql, { schema, logger: true }); // <-- RESTORE DB INITIALIZATION
+console.log('Drizzle client initialized.');
 // --- End logging around DB setup ---
 
 // Restore constants
@@ -1264,6 +1269,5 @@ brewsRoutes.delete('/:id', async (c) => {
 app.route('/brews', brewsRoutes);
 // --- End Brews API Routes ---
 
-export { app }; // <-- Add named export for the Hono instance
 export const runtime = 'edge'; // <-- Restore Edge runtime
 export default handle(app); 
