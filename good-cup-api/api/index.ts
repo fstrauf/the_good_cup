@@ -1,5 +1,5 @@
 import { Hono, Context } from 'hono';
-// import { handle } from 'hono/vercel'; // Use standard export for Node.js testing first
+import { handle } from 'hono/vercel'; // <-- RE-ENABLE this import
 import { sign, verify } from 'hono/jwt';
 import { eq, and, desc } from 'drizzle-orm';
 import OpenAI from 'openai';
@@ -925,10 +925,9 @@ app.delete('/grinders/:id', authMiddleware, async (c) => {
 
 
 // --- Vercel Export ---
-// Use default export for Node.js runtime on Vercel
-export default app;
-// Remove Edge runtime specification
-// export const runtime = 'edge';
+// Use the Hono Vercel adapter
+export default handle(app);
+// Ensure NO Edge runtime specification
 
 export const runtime = 'edge'; // <-- Restore Edge runtime
 // export default handle(app); 
