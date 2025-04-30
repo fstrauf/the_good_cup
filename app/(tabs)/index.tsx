@@ -10,6 +10,7 @@ import {
   Text as RNText,
   Platform,
   RefreshControl,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
@@ -100,6 +101,8 @@ export default function BeansScreen() {
   const [gettingSuggestion, setGettingSuggestion] = useState(false);
   const [navigationData, setNavigationData] = useState<NavigationParams | null>(null);
   const [modalSuggestionText, setModalSuggestionText] = useState<string>("");
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [suggestionComment, setSuggestionComment] = useState("");
   const { token } = useAuth();
 
   const loadBeans = useCallback(async (isRefreshing = false) => {
@@ -205,34 +208,67 @@ export default function BeansScreen() {
            setNavigationData(null);
         }
       } else {
-        console.log(`[fetchSuggestions] No history found or API check skipped. Generating generic suggestion (placeholder)...`);
+        console.log(`[fetchSuggestions] No history found or API check skipped. Calling API for generic suggestion...`);
         try {
-          // Placeholder: Fetch default brew device name from API user settings
-          // Example: const settings = await api.getUserSettings(); 
-          // Example: const device = await api.getBrewDeviceById(settings.defaultBrewDeviceId);
-          let brewMethod = 'Pour Over'; // Default if no setting/device found
-          // if (device) brewMethod = device.name;
+          // Fetch user settings to determine default brew method
+          let brewMethod = 'Pour Over'; // Default value
+          try {
+              console.log("[fetchSuggestions] Fetching user settings...");
+              const settings = await api.getUserSettings();
+              console.log("[fetchSuggestions] User settings fetched:", settings);
+              if (settings?.defaultBrewDeviceId) {
+                  console.log(`[fetchSuggestions] Default device ID found: ${settings.defaultBrewDeviceId}. Fetching device details...`);
+                  const device = await api.getBrewDeviceById(settings.defaultBrewDeviceId);
+                  if (device) {
+                      brewMethod = device.name; // Use the name from the fetched device
+                      console.log(`[fetchSuggestions] Using default brew method from settings: ${brewMethod}`);
+                  } else {
+                      console.warn(`[fetchSuggestions] Default brew device ID ${settings.defaultBrewDeviceId} not found in DB, using default: ${brewMethod}`);
+                  }
+              } else {
+                  console.log(`[fetchSuggestions] No default brew device set in settings, using default: ${brewMethod}`);
+              }
+          } catch (settingsError: any) {
+              console.error("[fetchSuggestions] Error fetching settings/device, using default brew method:", settingsError);
+              // Proceed with the default 'Pour Over' if settings fetch fails
+          }
 
-          const beanWithMethod = { ...bean, brewMethod };
-           // Placeholder: Call generic suggestion API
-          // suggestionResponse = await api.generateGenericBrewSuggestion(beanWithMethod, token);
-          suggestionResponse = { suggestionText: "Generic suggestion placeholder.", suggestedGrindSize: "Medium", suggestedWaterTemp: "94C", suggestedSteepTimeSeconds: 180, suggestedUseBloom: true, suggestedBloomTimeSeconds: 30 }; // Placeholder
-          console.log("[fetchSuggestions] Generated generic suggestion (placeholder).");
+          console.log(`[fetchSuggestions] Calling api.getGenericBrewSuggestion with method: ${brewMethod}...`);
+          // Call the new API function
+          suggestionResponse = await api.getGenericBrewSuggestion(
+            bean,             // Pass the full bean object
+            brewMethod,       // Pass the determined brew method
+            userComment || undefined // Pass the user comment if provided
+          );
+          console.log("[fetchSuggestions] Received API response for generic suggestion:", suggestionResponse);
+
         } catch (error: any) {
-           console.error("[fetchSuggestions] Error getting generic suggestion:", error);
+           console.error("[fetchSuggestions] Error getting generic suggestion via API:", error);
            setModalSuggestionText(`Error: ${error.message || 'Could not get suggestion'}`);
            setNavigationData(null);
+           // Set suggestionResponse to null to prevent trying to display partial data
+           suggestionResponse = null; 
         }
       }
 
       if (suggestionResponse) {
-        setModalSuggestionText(suggestionResponse.suggestionText || "No suggestion text provided.");
-        setNavigationData({ bean: bean, suggestionResponse: suggestionResponse as any }); 
-      } else if (!modalSuggestionText) {
-        setModalSuggestionText("Could not generate brewing suggestions.");
+        // Ensure response has the expected structure before using it
+        if (typeof suggestionResponse.suggestionText === 'string') { 
+          setModalSuggestionText(suggestionResponse.suggestionText || "Suggestion received, but text is missing.");
+          // Ensure NavigationParams uses BrewSuggestionResponse type if possible
+          setNavigationData({ bean: bean, suggestionResponse: suggestionResponse }); 
+        } else {
+           console.error("[fetchSuggestions] API response missing suggestionText:", suggestionResponse);
+           setModalSuggestionText("Received an invalid suggestion format from the server.");
+           setNavigationData(null);
+        }
+      } else if (!modalSuggestionText) { // Only set default error if no specific error was already set
+        // Error was likely handled and text set in the catch block above
+        // setModalSuggestionText("Could not generate brewing suggestions."); 
         setNavigationData(null);
       }
     } catch (error: any) {
+      // Catch errors from the top-level try (e.g., unexpected issues before API calls)
       console.error("[fetchSuggestions] Error in main try block:", error);
       setModalSuggestionText(`An unexpected error occurred: ${error.message || 'Unknown error'}`);
       setNavigationData(null);
@@ -241,35 +277,11 @@ export default function BeansScreen() {
     }
   };
 
-  const getOptimalBrewSuggestions = async (bean: Bean) => {
+  const getOptimalBrewSuggestions = (bean: Bean) => {
+    console.log(`[getOptimalBrewSuggestions] Opening comment modal for bean: ${bean.name}`);
     setSelectedBeanForSuggestion(bean);
-
-    Alert.prompt(
-      'Add Comment?',
-      'Optional: Add any specific requests or context for the suggestion (e.g., "make it less bitter", "want brighter flavors").',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-          onPress: () => {
-            console.log('Suggestion cancelled by user.');
-            setSelectedBeanForSuggestion(null);
-          },
-        },
-        {
-          text: 'Get Suggestion',
-          onPress: (comment) => {
-            if (selectedBeanForSuggestion) {
-              fetchSuggestions(selectedBeanForSuggestion, comment);
-            } else {
-              console.error("No bean selected when trying to fetch suggestions.");
-              Alert.alert("Error", "Could not get suggestions. Please try again.");
-            }
-          },
-        },
-      ],
-      Platform.OS === 'ios' ? 'plain-text' : undefined
-    );
+    setSuggestionComment("");
+    setCommentModalVisible(true);
   };
   
   return (
@@ -526,6 +538,82 @@ export default function BeansScreen() {
             )}
           </View>
         </View>
+      </Modal>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={commentModalVisible}
+        onRequestClose={() => {
+            setCommentModalVisible(false);
+            setSelectedBeanForSuggestion(null);
+            setSuggestionComment("");
+        }}
+      >
+        <TouchableOpacity
+            className="flex-1 justify-center items-center bg-charcoal/60 p-5"
+            activeOpacity={1}
+            onPress={() => { 
+                setCommentModalVisible(false); 
+                setSelectedBeanForSuggestion(null); 
+                setSuggestionComment(""); 
+            }} 
+        >
+          <View className="w-full max-w-md bg-soft-off-white p-5 rounded-2xl shadow-lg border border-pale-gray">
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-lg font-semibold text-charcoal">Add Comment? (Optional)</Text>
+              <TouchableOpacity 
+                  onPress={() => { 
+                      setCommentModalVisible(false); 
+                      setSelectedBeanForSuggestion(null); 
+                      setSuggestionComment(""); 
+                  }} 
+                  className="p-1"
+              >
+                <X size={22} color={themeColors['cool-gray-green']} />
+              </TouchableOpacity>
+            </View>
+            <Text className="text-sm text-cool-gray-green mb-3">
+              Add any specific requests or context for the suggestion (e.g., "make it less bitter", "want brighter flavors").
+            </Text>
+            <TextInput 
+              placeholder="Enter your comment here..."
+              value={suggestionComment}
+              onChangeText={setSuggestionComment}
+              multiline
+              numberOfLines={3}
+              placeholderTextColor={themeColors['cool-gray-green']}
+              className="mb-4 min-h-[70px] border border-pebble-gray rounded-lg bg-soft-off-white p-2.5 text-base text-charcoal leading-snug"
+              style={{ textAlignVertical: 'top' }}
+            />
+            <View className="flex-row justify-end gap-3">
+              <Button
+                variant="outline"
+                onPress={() => {
+                  setCommentModalVisible(false);
+                  setSelectedBeanForSuggestion(null);
+                  setSuggestionComment("");
+                }}
+                className="border-cool-gray-green"
+              >
+                <Text className="text-charcoal font-medium">Cancel</Text>
+              </Button>
+              <Button
+                variant="default"
+                onPress={() => {
+                  if (selectedBeanForSuggestion) {
+                    console.log('Calling fetchSuggestions with comment:', suggestionComment);
+                    fetchSuggestions(selectedBeanForSuggestion, suggestionComment || undefined);
+                  }
+                  setCommentModalVisible(false);
+                }}
+                className="bg-muted-sage-green"
+                disabled={!selectedBeanForSuggestion}
+              >
+                <Text className="text-white font-medium">Get Suggestion</Text>
+              </Button>
+            </View>
+          </View>
+        </TouchableOpacity> 
       </Modal>
     </SafeAreaView>
   );

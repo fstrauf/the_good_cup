@@ -285,5 +285,82 @@ export const getBeanById = async (id: string): Promise<Bean | null> => {
 };
 
 /**
+ * Fetches a single brew device by its ID.
+ */
+export const getBrewDeviceById = async (id: string): Promise<BrewDevice | null> => {
+  const url = `${API_URL}/api/brew-devices?id=${id}`; // Use query param
+  console.log(`[api.getBrewDeviceById] GET ${url}`);
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  if (!token) {
+    console.error("[api.getBrewDeviceById] No token found");
+    throw new Error("Authentication required");
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+    });
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      let errorBody; try { errorBody = await response.json(); } catch (e) {}
+      throw new Error(errorBody?.message || `HTTP error! status: ${response.status}`);
+    }
+    return await response.json();
+  } catch (error: any) {
+    console.error("[api.getBrewDeviceById] Error:", error);
+    throw new Error(error instanceof Error ? error.message : "An unexpected error occurred");
+  }
+};
+
+// Define the expected response structure for suggestions
+export interface BrewSuggestionResponse {
+  suggestionText: string | null;
+  suggestedGrindSize: string | null;
+  suggestedWaterTemp: string | null;
+  suggestedSteepTimeSeconds: number | null;
+  suggestedUseBloom: boolean;
+  suggestedBloomTimeSeconds: number | null;
+  // Add formatted times if the backend includes them
+  steepTimeFormatted?: string;
+  bloomTimeFormatted?: string;
+}
+
+/**
+ * Fetches a generic brew suggestion based on bean details and brew method.
+ */
+export const getGenericBrewSuggestion = async (
+  bean: Bean,
+  brewMethod: string,
+  userComment?: string
+): Promise<BrewSuggestionResponse> => {
+  const endpoint = '/brew-suggestion';
+  console.log(`[api.getGenericBrewSuggestion] POST ${endpoint} with method: ${brewMethod}`);
+  
+  const requestBody = {
+    beanName: bean.name,
+    roastLevel: bean.roastLevel,
+    flavorNotes: bean.flavorNotes,
+    roastedDate: bean.roastedDate, // Pass ISO string
+    country: bean.origin, // Map origin to country for backend
+    process: bean.process,
+    brewMethod: brewMethod,
+    userComment: userComment || null,
+    // Ensure all fields expected by the backend generic prompt are included
+  };
+
+  const response = await fetchWithAuth(endpoint, {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
+  });
+
+  // Backend endpoint already parses/formats, expect JSON directly
+  return response.json(); 
+};
+
+/**
  * Fetches brew devices for the user.
  */ 
