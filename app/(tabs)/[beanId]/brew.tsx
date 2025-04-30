@@ -489,7 +489,7 @@ const HomeScreenComponent = () => {
                 style={styles.textInput}
                 value={grindSize}
                 onChangeText={setGrindSize}
-                placeholder="Medium-Fine, 18 clicks, etc."
+                placeholder="21"
                 placeholderTextColor={themeColors["cool-gray-green"]}
               />
             </View>

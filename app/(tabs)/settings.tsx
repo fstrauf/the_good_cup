@@ -8,6 +8,10 @@ import { Star, Trash2, Plus, LogOut, Info } from 'lucide-react-native';
 import { cn } from '../../lib/utils';
 import { Link } from 'expo-router';
 import { Href } from 'expo-router';
+import { useAuth } from "../../lib/auth";
+import { useRouter } from 'expo-router';
+import { version } from '../../package.json'; // Import version
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue, Option } from "../../components/ui/select";
 
 // --- Import API functions ---
 import * as api from '../../lib/api';
@@ -22,7 +26,8 @@ const themeColors = (fullConfig.theme?.colors ?? {}) as Record<string, string>;
 // --- End Tailwind ---
 
 export default function SettingsScreen() {
-  const signOut = () => console.log("Sign Out Pressed - Placeholder"); // Placeholder
+  const { signOut } = useAuth(); // Get signOut function from auth context
+  const router = useRouter(); // Get router for navigation
 
   // Brew devices state
   const [brewDevices, setBrewDevices] = useState<BrewDevice[]>([]);
@@ -320,31 +325,16 @@ export default function SettingsScreen() {
 
   // Handle Sign Out
   const handleSignOut = async () => {
-    Alert.alert(
-      "Confirm Sign Out",
-      "Are you sure you want to sign out?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "Sign Out",
-          onPress: async () => {
-            try {
-              await signOut(); 
-              // Navigation back to login happens automatically due to AuthProvider state change (if using context)
-              // OR: Need explicit navigation if not using context provider pattern for auth state
-              // Example: navigation.navigate('Login'); 
-            } catch (error) {
-              console.error('Error signing out:', error);
-              Alert.alert('Error', 'Failed to sign out. Please try again.');
-            }
-          },
-          style: "destructive",
-        }
-      ]
-    );
+    console.log("Sign Out initiated...");
+    try {
+      await signOut();
+      console.log("Sign Out successful, navigating to login.");
+      // Replace the current stack with the login screen
+      router.replace('/login'); 
+    } catch (e: any) {
+      console.error("Sign Out Error:", e);
+      Alert.alert("Sign Out Failed", e.message || "An unexpected error occurred.");
+    }
   };
 
   // --- Render Loading/Error States ---
@@ -601,14 +591,21 @@ export default function SettingsScreen() {
           </Link>
 
           {/* Sign Out Button */}
-          <Button 
-            variant="destructive"
-            onPress={handleSignOut} 
-            className="flex-row items-center justify-center bg-red-100 border border-red-300"
-          >
-            <LogOut size={18} color={themeColors['red-600']} className="mr-2" />
-            <Text className="text-red-600 font-semibold">Sign Out</Text>
-          </Button>
+          <View className="mt-6 mb-8 border-t border-pale-gray pt-6">
+            <Button
+              variant="outline"
+              size="lg"
+              onPress={handleSignOut}
+              className="mx-4 border-red-300 bg-red-50"
+              disabled={loading || refreshing}
+            >
+              <Text className="font-bold text-red-600">Sign Out</Text>
+            </Button>
+             {/* Version Info */}
+              <Text className="text-center text-xs text-cool-gray-green mt-6"> 
+                  App Version: {version}
+              </Text>
+          </View>
 
         </ScrollView>
       </View>
