@@ -452,11 +452,29 @@ export default function SettingsScreen() {
               keyExtractor={(item) => item.id}
               scrollEnabled={false}
               ListEmptyComponent={
-                !loading && !refreshing && brewDevices.length === 0 ? ( // Only show if not loading and empty
-                    <Text className="text-center text-cool-gray-green my-4">
-                    No brew devices added yet
-                    </Text>
-                ) : null // Otherwise render nothing (or a different loading state)
+                !loading && !refreshing && brewDevices.length === 0 ? (
+                    <View className="items-center my-4 p-4 bg-light-beige/50 rounded-lg border border-dashed border-pale-gray">
+                        <Text className="text-center text-cool-gray-green mb-3">
+                            No brew devices added yet. Add common ones?
+                        </Text>
+                        <View className="flex-row gap-2">
+                             <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="bg-white border-pebble-gray"
+                                onPress={() => {
+                                    setNewDeviceName('Hario Switch');
+                                    setNewDeviceType('Pour Over / Immersion');
+                                    setNewDeviceNotes(''); // Clear notes
+                                    setAddingDevice(true);
+                                }}
+                            >
+                                <Text className="text-charcoal">Hario Switch</Text>
+                            </Button>
+                             {/* Add more suggestions if needed */}
+                        </View>
+                    </View>
+                ) : null
               }
             />
           </View>
@@ -541,11 +559,29 @@ export default function SettingsScreen() {
               keyExtractor={(item) => item.id}
               scrollEnabled={false}
               ListEmptyComponent={
-                 !loading && !refreshing && grinders.length === 0 ? ( // Only show if not loading and empty
-                    <Text className="text-center text-cool-gray-green my-4">
-                    No grinders added yet
-                    </Text>
-                 ) : null // Otherwise render nothing
+                 !loading && !refreshing && grinders.length === 0 ? ( 
+                     <View className="items-center my-4 p-4 bg-light-beige/50 rounded-lg border border-dashed border-pale-gray">
+                        <Text className="text-center text-cool-gray-green mb-3">
+                            No grinders added yet. Add common ones?
+                        </Text>
+                         <View className="flex-row gap-2">
+                             <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="bg-white border-pebble-gray"
+                                onPress={() => {
+                                    setNewGrinderName('1Zpresso J-Max');
+                                    setNewGrinderType('Hand Grinder');
+                                    setNewGrinderNotes(''); // Clear notes
+                                    setAddingGrinder(true);
+                                }}
+                             >
+                                <Text className="text-charcoal">1Zpresso J-Max</Text>
+                            </Button>
+                            {/* Add more suggestions if needed */}
+                        </View>
+                    </View>
+                 ) : null
               }
             />
           </View>

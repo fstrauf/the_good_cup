@@ -137,7 +137,8 @@ export const addBrewDevice = async (data: { name: string; type?: string; notes?:
 };
 
 export const updateBrewDevice = async (id: string, data: { name: string; type?: string; notes?: string }): Promise<BrewDevice> => {
-  const response = await fetchWithAuth(`/brew-devices/${id}`, {
+  // Use query parameter for ID
+  const response = await fetchWithAuth(`/brew-devices?id=${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
@@ -145,7 +146,8 @@ export const updateBrewDevice = async (id: string, data: { name: string; type?: 
 };
 
 export const deleteBrewDevice = async (id: string): Promise<{ message: string }> => {
-  const response = await fetchWithAuth(`/brew-devices/${id}`, {
+  // Use query parameter for ID
+  const response = await fetchWithAuth(`/brew-devices?id=${id}`, {
     method: 'DELETE',
   });
   return response.json();
@@ -166,7 +168,8 @@ export const addGrinder = async (data: { name: string; type?: string; notes?: st
 };
 
 export const updateGrinder = async (id: string, data: { name: string; type?: string; notes?: string }): Promise<Grinder> => {
-  const response = await fetchWithAuth(`/grinders/${id}`, {
+  // Use query parameter for ID
+  const response = await fetchWithAuth(`/grinders?id=${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
@@ -174,7 +177,8 @@ export const updateGrinder = async (id: string, data: { name: string; type?: str
 };
 
 export const deleteGrinder = async (id: string): Promise<{ message: string }> => {
-  const response = await fetchWithAuth(`/grinders/${id}`, {
+  // Use query parameter for ID
+  const response = await fetchWithAuth(`/grinders?id=${id}`, {
     method: 'DELETE',
   });
   return response.json();
@@ -210,7 +214,8 @@ export const addBean = async (data: Partial<Omit<Bean, 'id' | 'userId' | 'create
 };
 
 export const updateBean = async (id: string, data: Partial<Omit<Bean, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>): Promise<Bean> => {
-  const response = await fetchWithAuth(`/beans/${id}`, {
+  // Use query parameter for ID
+  const response = await fetchWithAuth(`/beans?id=${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
@@ -218,8 +223,67 @@ export const updateBean = async (id: string, data: Partial<Omit<Bean, 'id' | 'us
 };
 
 export const deleteBean = async (id: string): Promise<{ message: string }> => {
-  const response = await fetchWithAuth(`/beans/${id}`, {
+  // Use query parameter for ID
+  const response = await fetchWithAuth(`/beans?id=${id}`, {
     method: 'DELETE',
   });
   return response.json();
-}; 
+};
+
+/**
+ * Fetches a single bean by its ID.
+ */
+export const getBeanById = async (id: string): Promise<Bean | null> => {
+  // Use query parameter for ID
+  const url = `${API_URL}/api/beans?id=${id}`; // Construct URL with query param for fetchWithAuth
+  console.log(`[api.getBeanById] GET ${url}`);
+  const token = await SecureStore.getItemAsync('token'); // Use SecureStore directly as fetchWithAuth isn't used here
+  if (!token) {
+    console.error("[api.getBeanById] No token found");
+    throw new Error("Authentication required");
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+    });
+
+    console.log(`[api.getBeanById] Response Status: ${response.status}`);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.warn(`[api.getBeanById] Bean with ID ${id} not found (404).`);
+        return null; // Specific handling for 404
+      } 
+      // Try to get error message from response body
+      let errorMessage = `API error ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = `${errorMessage}: ${errorData?.message || 'Unknown error'}`;
+        console.error(`[api.getBeanById] Error Response Body:`, errorData);
+      } catch (jsonError) {
+        // If response is not JSON or reading body fails
+        console.error("[api.getBeanById] Could not parse error response body");
+      }
+      console.error(`[api.getBeanById] Fetch Error: ${errorMessage}`);
+      throw new Error(errorMessage);
+    }
+
+    const data: Bean = await response.json();
+    return data;
+
+  } catch (error: any) {
+    // Catch network errors or errors thrown from response.ok check
+    console.error("[api.getBeanById] Network or Parsing Error:", error);
+    // Re-throw the caught error or a generic one
+    throw new Error(error instanceof Error ? error.message : "An unexpected error occurred while fetching the bean");
+  }
+};
+
+/**
+ * Fetches brew devices for the user.
+ */ 

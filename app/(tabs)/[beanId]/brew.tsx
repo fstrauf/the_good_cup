@@ -29,6 +29,8 @@ import BeanNameHeader from "../../../components/BeanNameHeader";
 import { Button } from "../../../components/ui/button";
 import { Text } from "../../../components/ui/text";
 import { X } from "lucide-react-native";
+import * as api from '../../../lib/api'; // Import API functions
+import { BrewDevice as ApiBrewDevice, Grinder as ApiGrinder } from '../../../lib/api'; // Import specific types
 
 // --- Tailwind ---
 import resolveConfig from "tailwindcss/resolveConfig";
@@ -249,83 +251,56 @@ const HomeScreenComponent = () => {
 
   const loadEquipment = async () => {
     try {
-      console.log("[LoadEquipment] Fetching data from AsyncStorage...");
-      const storedDevicesRaw = await AsyncStorage.getItem(BREW_DEVICES_STORAGE_KEY);
-      const storedGrindersRaw = await AsyncStorage.getItem(GRINDERS_STORAGE_KEY);
-      const defaultDeviceId = await AsyncStorage.getItem(DEFAULT_BREW_DEVICE_KEY);
-      const defaultGrinderId = await AsyncStorage.getItem(DEFAULT_GRINDER_KEY);
+      console.log("[LoadEquipment] Fetching data from API...");
+      // Fetch all data concurrently
+      const [devicesData, grindersData, settingsData] = await Promise.all([
+        api.getBrewDevices(),
+        api.getGrinders(),
+        api.getUserSettings()
+      ]);
 
-      console.log("[LoadEquipment] Raw storedDevices:", storedDevicesRaw);
-      console.log("[LoadEquipment] Raw storedGrinders:", storedGrindersRaw);
-      console.log("[LoadEquipment] Default Device ID:", defaultDeviceId);
-      console.log("[LoadEquipment] Default Grinder ID:", defaultGrinderId);
+      // Log fetched data *after* await
+      console.log("[LoadEquipment] Fetched Devices:", JSON.stringify(devicesData));
+      console.log("[LoadEquipment] Fetched Grinders:", JSON.stringify(grindersData));
+      console.log("[LoadEquipment] Fetched Settings:", JSON.stringify(settingsData));
 
-      let devices: BrewDevice[] = [];
-      let grinders: Grinder[] = [];
+      // Set state with fetched data
+      setBrewDevices(devicesData || []); // Ensure it's an array
+      setGrinders(grindersData || []);   // Ensure it's an array
 
-      if (storedDevicesRaw) {
-        try {
-          devices = JSON.parse(storedDevicesRaw);
-          console.log("[LoadEquipment] Parsed devices:", devices);
-        } catch (parseError) {
-          console.error("[LoadEquipment] Error parsing devices JSON:", parseError);
-        }
+      const defaultDeviceId = settingsData?.defaultBrewDeviceId;
+      const defaultGrinderId = settingsData?.defaultGrinderId;
+
+      console.log("[LoadEquipment] Default Device ID from Settings:", defaultDeviceId);
+      console.log("[LoadEquipment] Default Grinder ID from Settings:", defaultGrinderId);
+
+      // Set default selections if available AND if the default exists in the fetched list
+      if (defaultDeviceId && devicesData?.some((d: ApiBrewDevice) => d.id === defaultDeviceId)) {
+        console.log(`[LoadEquipment] Setting selectedBrewDevice to: ${defaultDeviceId}`);
+        setSelectedBrewDevice(defaultDeviceId);
       } else {
-        console.log("[LoadEquipment] No stored devices found.");
-      }
-
-      if (storedGrindersRaw) {
-        try {
-          grinders = JSON.parse(storedGrindersRaw);
-          console.log("[LoadEquipment] Parsed grinders:", grinders);
-        } catch (parseError) {
-          console.error("[LoadEquipment] Error parsing grinders JSON:", parseError);
-        }
-      } else {
-        console.log("[LoadEquipment] No stored grinders found.");
-      }
-
-      // Use functional updates for state setters to ensure logging happens after update
-      setBrewDevices((prevDevices) => {
-        console.log("[LoadEquipment] Setting brewDevices state with:", devices);
-        return devices;
-      });
-      setGrinders((prevGrinders) => {
-        console.log("[LoadEquipment] Setting grinders state with:", grinders);
-        return grinders;
-      });
-
-      // Set default selections if available AND if the default device/grinder still exists
-      if (defaultDeviceId) {
-        console.log(`[LoadEquipment] Found default Device ID in storage: ${defaultDeviceId}`);
-        if (devices.some(d => d.id === defaultDeviceId)) {
-          console.log("[LoadEquipment] Default device found in loaded list. Setting state...");
-          setSelectedBrewDevice(defaultDeviceId);
-        } else {
-          console.warn("[LoadEquipment] Saved default brew device ID not found in current device list.");
-        }
-      } else {
-        console.log("[LoadEquipment] No default brew device ID found in storage.");
+        console.log("[LoadEquipment] No valid default brew device to set, or device not found in list.");
+        // Optionally clear selection if default is invalid/removed
+        // setSelectedBrewDevice(""); 
       }
       
-      if (defaultGrinderId) {
-        console.log(`[LoadEquipment] Found default Grinder ID in storage: ${defaultGrinderId}`);
-        if (grinders.some(g => g.id === defaultGrinderId)) {
-          console.log("[LoadEquipment] Default grinder found in loaded list. Setting state...");
-          setSelectedGrinder(defaultGrinderId);
-        } else {
-          console.warn("[LoadEquipment] Saved default grinder ID not found in current grinder list.");
-        }
+      if (defaultGrinderId && grindersData?.some((g: ApiGrinder) => g.id === defaultGrinderId)) {
+        console.log(`[LoadEquipment] Setting selectedGrinder to: ${defaultGrinderId}`);
+        setSelectedGrinder(defaultGrinderId);
       } else {
-        console.log("[LoadEquipment] No default grinder ID found in storage.");
+        console.log("[LoadEquipment] No valid default grinder to set, or grinder not found in list.");
+         // Optionally clear selection
+        // setSelectedGrinder("");
       }
+
     } catch (error) {
       console.error("[LoadEquipment] Error loading equipment:", error);
+      // Set empty arrays on error to avoid issues with .map
+      setBrewDevices([]); 
+      setGrinders([]);
+      setSelectedBrewDevice("");
+      setSelectedGrinder("");
     }
-
-    // Before the return statement, add logs for the state values
-    console.log("[Render] Final selectedBrewDevice state:", selectedBrewDevice);
-    console.log("[Render] Final selectedGrinder state:", selectedGrinder);
   };
 
   // Add useEffect to log state changes accurately

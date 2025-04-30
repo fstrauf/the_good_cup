@@ -62,12 +62,13 @@ export default function AddEditBeanScreen() {
 
 function BeanEditor() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ beanData?: string }>();
+  const params = useLocalSearchParams<{ beanId?: string }>();
   const navigation = useNavigation();
   const { token } = useAuth();
 
   const [isEditing, setIsEditing] = useState(false);
   const [bean, setBean] = useState<Partial<Bean>>(createEmptyPartialApiBean());
+  const [loadingBeanDetails, setLoadingBeanDetails] = useState(false);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [isDatePickerOpen, setDatePickerOpen] = useState(false);
@@ -75,32 +76,53 @@ function BeanEditor() {
   const [analysisResults, setAnalysisResults] = useState<any | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (params.beanData) {
-      try {
-        const existingBean = JSON.parse(params.beanData) as Bean;
+  const loadBeanDetails = async (id: string) => {
+    console.log(`[loadBeanDetails] Fetching bean with ID: ${id}`);
+    setLoadingBeanDetails(true);
+    setErrorText(null);
+    try {
+      const fetchedBean = await api.getBeanById(id);
+      if (fetchedBean) {
+        console.log("[loadBeanDetails] Bean found:", fetchedBean);
         setBean({
-          id: existingBean.id,
-          name: existingBean.name || '',
-          origin: existingBean.origin || '',
-          roastLevel: existingBean.roastLevel || '',
-          roastedDate: existingBean.roastedDate || null,
-          flavorNotes: existingBean.flavorNotes || [],
-          imageUrl: existingBean.imageUrl || null,
-          description: existingBean.description || null, // Load description
+          id: fetchedBean.id,
+          name: fetchedBean.name || '',
+          origin: fetchedBean.origin || '',
+          roastLevel: fetchedBean.roastLevel || '',
+          roastedDate: fetchedBean.roastedDate ? dayjs(fetchedBean.roastedDate).toISOString() : null,
+          flavorNotes: fetchedBean.flavorNotes || [],
+          imageUrl: fetchedBean.imageUrl || null,
+          description: fetchedBean.description || null,
         });
         setIsEditing(true);
-        console.log("Editing bean:", existingBean.id);
-      } catch (e) {
-        console.error("Failed to parse beanData param:", e);
-        Alert.alert("Error", "Could not load bean data for editing.");
-        router.back();
+      } else {
+        console.warn(`[loadBeanDetails] Bean with ID ${id} not found.`);
+        setErrorText("Could not find the requested bean.");
+        Alert.alert("Error", "Could not load bean data. It might have been deleted.");
+        setBean(createEmptyPartialApiBean());
+        setIsEditing(false);
       }
+    } catch (error: any) {
+      console.error("[loadBeanDetails] API Error fetching bean:", error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setErrorText(`Failed to load bean: ${message}`);
+      Alert.alert("Error", `Failed to load bean data: ${message}`);
+      setBean(createEmptyPartialApiBean());
+      setIsEditing(false);
+    } finally {
+      setLoadingBeanDetails(false);
+    }
+  };
+
+  useEffect(() => {
+    if (params.beanId) {
+      loadBeanDetails(params.beanId);
     } else {
       setBean(createEmptyPartialApiBean());
       setIsEditing(false);
+      console.log("[useEffect] No beanId found, setting up for adding new bean.");
     }
-  }, [params.beanData]);
+  }, [params.beanId]);
 
   const handleSaveBean = async () => {
     if (!bean.name) {
@@ -117,7 +139,7 @@ function BeanEditor() {
       roastedDate: bean.roastedDate || null,
       flavorNotes: bean.flavorNotes && bean.flavorNotes.length > 0 ? bean.flavorNotes.map(f => f.trim()).filter(f => f) : null,
       imageUrl: bean.imageUrl || null,
-      description: bean.description || null, // Save description
+      description: bean.description || null,
     };
 
     try {
