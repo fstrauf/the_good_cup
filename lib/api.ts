@@ -237,7 +237,7 @@ export const getBeanById = async (id: string): Promise<Bean | null> => {
   // Use query parameter for ID
   const url = `${API_URL}/api/beans?id=${id}`; // Construct URL with query param for fetchWithAuth
   console.log(`[api.getBeanById] GET ${url}`);
-  const token = await SecureStore.getItemAsync('token'); // Use SecureStore directly as fetchWithAuth isn't used here
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
   if (!token) {
     console.error("[api.getBeanById] No token found");
     throw new Error("Authentication required");

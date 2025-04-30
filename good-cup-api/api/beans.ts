@@ -128,18 +128,54 @@ export default async (req: VercelRequest, res: VercelResponse) => {
             } else if (req.method === 'PUT') {
                 // --- PUT /api/beans?id={beanId} (Update Bean) ---
                  console.log(`[beans.ts] PUT invoked for ID: ${beanId}, user ${userId}`);
-                 const beanData: { [key: string]: any } = req.body || {};
-                 if (beanData.name === '') {
+                 const { roastedDate, ...otherBeanData }: { roastedDate?: string | null; [key: string]: any } = req.body || {};
+                 
+                 if (otherBeanData.name === '') {
                     return res.status(400).json({ message: 'Bean name cannot be empty' });
                  }
+                 
+                 // Convert roastedDate string to Date object if present and valid
+                let roastedDateObj: Date | null = null;
+                if (roastedDate !== undefined) { // Check if the key exists, even if null
+                    if (roastedDate === null) {
+                        roastedDateObj = null;
+                    } else if (typeof roastedDate === 'string') {
+                        const parsedDate = new Date(roastedDate);
+                        if (!isNaN(parsedDate.getTime())) {
+                            roastedDateObj = parsedDate;
+                        } else {
+                            console.warn(`[beans.ts] Received invalid roastedDate string for update: ${roastedDate}`);
+                            // Optionally return an error or proceed with null/previous value
+                            // return res.status(400).json({ message: 'Invalid roastedDate format for update' });
+                        }
+                    } else {
+                         // Handle cases where roastedDate is present but not string/null (e.g., number)
+                         console.warn(`[beans.ts] Received invalid type for roastedDate string for update: ${typeof roastedDate}`);
+                         // return res.status(400).json({ message: 'Invalid roastedDate type for update' });
+                    }
+                }
+                // If roastedDate was NOT included in req.body, we don't touch it in the DB
+                // If it WAS included (even as null), we update it with roastedDateObj (which could be Date or null)
+
                  // Remove fields that shouldn't be updated directly
-                 delete beanData.id;
-                 delete beanData.userId;
-                 delete beanData.createdAt;
-                 beanData.updatedAt = new Date(); 
+                 delete otherBeanData.id;
+                 delete otherBeanData.userId;
+                 delete otherBeanData.createdAt;
+                 
+                 const dataToSet: { [key: string]: any } = {
+                    ...otherBeanData,
+                    updatedAt: new Date(),
+                 };
+
+                 // Only include roastedDate in the update if it was present in the request body
+                 if (roastedDate !== undefined) {
+                     dataToSet.roastedDate = roastedDateObj;
+                 }
+
+                 console.log("[beans.ts] Data being sent to db.update:", dataToSet);
 
                  const updatedBean = await db.update(beansTable)
-                    .set(beanData)
+                    .set(dataToSet) // Use the object with potentially updated roastedDate
                     .where(and(eq(beansTable.id, beanId), eq(beansTable.userId, userId)))
                     .returning();
                  if (!updatedBean || updatedBean.length === 0) {
