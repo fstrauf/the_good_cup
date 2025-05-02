@@ -2,8 +2,20 @@ import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
 // --- Configuration ---
+// Use the environment variable set in eas.json
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
+
+if (!API_URL) {
+  // Throw an error during development if the URL isn't set,
+  // but allow builds to proceed (where EAS will set it).
+  // You might want a different strategy for local dev without EAS CLI.
+  console.error("ERROR: EXPO_PUBLIC_API_URL environment variable is not set!");
+  // Optionally throw an error to prevent the app from running without a configured API
+  // throw new Error("API URL is not configured. Set EXPO_PUBLIC_API_URL in your environment or eas.json.");
+}
+
 // Hardcode the API URL for local development/simplicity
-const API_URL = 'https://the-good-cup-api.vercel.app'; // <-- HARDCODED
+// const API_URL = 'https://the-good-cup-api.vercel.app'; // <-- REMOVED HARDCODED URL
 // Retrieve the API URL from Expo constants (environment variables)
 // const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:3000'; // Provide a fallback for local dev
 const TOKEN_KEY = 'jwt_token'; // Key used to store the token securely
@@ -196,6 +208,18 @@ export const updateUserSettings = async (data: { defaultBrewDeviceId?: string | 
     body: JSON.stringify(data),
   });
   return response.json();
+};
+
+// --- User Account ---
+/**
+ * Deletes the currently authenticated user's account.
+ * Expects a backend endpoint like DELETE /api/user.
+ */
+export const deleteAccount = async (): Promise<{ message: string }> => {
+  const response = await fetchWithAuth('/user', { // Assuming DELETE /api/user endpoint
+    method: 'DELETE',
+  });
+  return response.json(); // Assuming backend returns { message: "Account deleted successfully" }
 };
 
 // Beans

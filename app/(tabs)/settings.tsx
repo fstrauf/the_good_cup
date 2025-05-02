@@ -247,6 +247,36 @@ export default function SettingsScreen() {
     }
   };
 
+  // --- Handle Account Deletion ---
+  const handleDeleteAccount = async () => {
+    Alert.alert(
+      "Delete Account",
+      "Are you sure you want to permanently delete your account? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setLoading(true);
+            try {
+              await api.deleteAccount(); // Call the API function
+              Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
+              // Sign out and potentially navigate away
+              await signOut();
+              router.replace('/login'); // Use the correct login route
+            } catch (e: any) {
+              console.error('Error deleting account:', e);
+              Alert.alert('Error', `Failed to delete account: ${e.message}`);
+            } finally {
+                setLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   // Render brew device item
   const renderBrewDeviceItem = ({ item }: { item: BrewDevice }) => (
     <View
@@ -591,20 +621,29 @@ export default function SettingsScreen() {
           </Link>
 
           {/* Sign Out Button */}
-          <View className="mt-6 mb-8 border-t border-pale-gray pt-6">
-            <Button
+          <View className="mt-8 pt-4 border-t border-border">
+            <Button 
               variant="outline"
-              size="lg"
+              className="flex-row items-center justify-center mb-4" 
               onPress={handleSignOut}
-              className="mx-4 border-red-300 bg-red-50"
-              disabled={loading || refreshing}
             >
-              <Text className="font-bold text-red-600">Sign Out</Text>
+              <LogOut size={18} color={themeColors.foreground} className="mr-2" />
+              <Text>Sign Out</Text>
             </Button>
-             {/* Version Info */}
-              <Text className="text-center text-xs text-cool-gray-green mt-6"> 
-                  App Version: {version}
-              </Text>
+
+            {/* --- Delete Account Button --- */}
+            <Button 
+              variant="destructive" // Change to standard destructive variant
+              className="flex-row items-center justify-center mb-4" 
+              onPress={handleDeleteAccount} // Attach the handler
+            >
+              <Trash2 size={18} color={themeColors.destructive} className="mr-2" /> 
+              <Text className="text-white">Delete Account</Text>
+            </Button>
+            
+            <Text className="text-center text-muted-foreground text-xs mt-2">
+              App Version: {version}
+            </Text>
           </View>
 
         </ScrollView>

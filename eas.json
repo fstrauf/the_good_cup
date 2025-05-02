@@ -8,11 +8,10 @@
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "simulator": true
       },
       "environment": "development",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://good-cup-api.vercel.app"
+        "EXPO_PUBLIC_API_URL": "https://the-good-cup-api.vercel.app"
       }
     },
     "preview": {
@@ -22,7 +21,7 @@
       },
       "environment": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://good-cup-api.vercel.app"
+        "EXPO_PUBLIC_API_URL": "https://the-good-cup-api.vercel.app"
       }
     },
     "production": {
@@ -32,7 +31,7 @@
       "autoIncrement": true,
       "environment": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://good-cup-api.vercel.app"
+        "EXPO_PUBLIC_API_URL": "https://the-good-cup-api.vercel.app"
       }
     }
   },
