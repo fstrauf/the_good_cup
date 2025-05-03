@@ -58,27 +58,32 @@ export default async (req: any, res: any) => {
   try {
     url = new URL(fullUrl); // Assign inside try
     path = url.pathname;
+    // *** Log the exact path and method received ***
+    console.log(`[index.ts Router] Received Path: '${path}', Method: ${req.method}`);
   } catch (e) {
-    console.error('Error parsing URL:', e);
+    console.error('[index.ts Router] Error parsing URL:', fullUrl, e);
     return res.status(400).json({ message: 'Invalid request URL' });
   }
-
-  console.log(`[index.ts Router] Request: ${req.method} ${path}`);
 
   try {
     let result: any;
     const queryParams = url.searchParams; // Use the url variable defined above
+    console.log(`[index.ts Router] Routing check for: ${req.method} ${path}`); // Log before checks
 
     // --- Define Routes ---
     if (path === '/api/auth/register' && req.method === 'POST') {
+        console.log('[index.ts Router] Matched: POST /api/auth/register'); // Log match
         result = await handleRegister(req, res);
     } else if (path === '/api/auth/login' && req.method === 'POST') {
+        console.log('[index.ts Router] Matched: POST /api/auth/login'); // Log match
         result = await handleLogin(req, res); 
     } else if (path === '/api/user' && req.method === 'DELETE') {
+        console.log('[index.ts Router] Matched: DELETE /api/user'); // Log match
         result = await handleDeleteUser(req, res);
     
     // --- Grinder Routes ---
     } else if (path === '/api/grinders' && req.method === 'GET') {
+        console.log('[index.ts Router] Matched: GET /api/grinders'); // Log match
         result = await handleGetGrinders(req, res);
     } else if (path === '/api/grinders' && req.method === 'POST') {
         result = await handleAddGrinder(req, res);
@@ -89,10 +94,13 @@ export default async (req: any, res: any) => {
         
     // --- Bean Routes ---
     } else if (path === '/api/beans' && req.method === 'GET') {
-        // Check if ID param exists for GET by ID route
+        // *** Log entering this specific block ***
+        console.log('[index.ts Router] Matched block: GET /api/beans'); 
         if (queryParams.has('id')) {
+             console.log('[index.ts Router] Matched: GET /api/beans?id=...'); // Log match
              result = await handleGetBeanById(req, res); // Handler uses req.url
         } else {
+             console.log('[index.ts Router] Matched: GET /api/beans (all)'); // Log match
              result = await handleGetBeans(req, res); // Get all beans
         }
     } else if (path === '/api/beans' && req.method === 'POST') {
@@ -134,6 +142,7 @@ export default async (req: any, res: any) => {
     } else if (path === '/api' && req.method === 'GET') {
         return res.status(200).json({ message: 'API /api OK - Central Router' });
     } else if (path === '/api/health' && req.method === 'GET') {
+        console.log('[index.ts Router] Matched: GET /api/health'); // Log match
         result = await handleHealthCheck(req, res);
     } 
     // Add /api/health route handler import and check if needed
@@ -141,18 +150,19 @@ export default async (req: any, res: any) => {
     
     else {
       // No route matched
-      console.warn(`[index.ts Router] Route not found: ${req.method} ${path}`);
+      // *** Log that no route was matched ***
+      console.warn(`[index.ts Router] No route matched for: ${req.method} ${path}`); 
       return res.status(404).json({ message: 'API route not found' });
     }
 
     // --- Success Response ---
-    // If we reached here, a handler was called and returned successfully
-    // console.log(`[index.ts Router] Success Result for ${req.method} ${path}:`, result);
+    console.log(`[index.ts Router] Handler success for: ${req.method} ${path}`); // Log success
     return res.status(200).json(result); // Send result from handler
 
   } catch (error: any) {
     // --- Error Handling ---
-    console.error(`[index.ts Router] Error for ${req.method} ${path}:`, error);
+    // *** Log the error being caught ***
+    console.error(`[index.ts Router] Caught error for ${req.method} ${path}:`, error);
     const status = error.status || 500;
     const message = error.message || 'Internal Server Error';
     return res.status(status).json({ message });
