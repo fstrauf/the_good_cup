@@ -19,7 +19,8 @@
     { "source": "/beans", "destination": "/api/beans" },
     { "source": "/grinders", "destination": "/api/grinders" },
     { "source": "/brew-devices", "destination": "/api/brew-devices" },
-    { "source": "/settings", "destination": "/api/settings" }
+    { "source": "/settings", "destination": "/api/settings" },
+    { "source": "/api/(.*)", "destination": "/api/index" }
   ],
   "headers": [
     {
