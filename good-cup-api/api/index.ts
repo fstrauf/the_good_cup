@@ -64,6 +64,35 @@ app.get('/health', (c) => {
   });
 });
 
+// --- Bean Routes ---
+app.get('/beans', async (c) => {
+    const id = c.req.query('id'); // Hono context provides easy query access
+    console.log(`[Hono GET /beans] id query param: ${id}`);
+    if (id) {
+        // NOTE: Need to adjust handleGetBeanById if it expects req/res
+        // It's better if handlers just take necessary params (like id)
+        // For now, passing context might work if handler uses req.url
+        return c.json(await handleGetBeanById(c.req, null)); 
+    } else {
+        return c.json(await handleGetBeans(c.req, null)); // Pass null for res if unused
+    }
+});
+
+app.post('/beans', async (c) => {
+    const result = await handleAddBean(c.req, null);
+    return c.json(result, 201); // Return 201 Created status
+});
+
+app.put('/beans', async (c) => {
+    const result = await handleUpdateBean(c.req, null);
+    return c.json(result);
+});
+
+app.delete('/beans', async (c) => {
+    const result = await handleDeleteBean(c.req, null);
+    return c.json(result);
+});
+
 // Catch-all for 404s within /api base path
 app.notFound((c) => {
     console.warn(`[Hono Node Adapter] Not Found: ${c.req.method} ${c.req.url}`);
