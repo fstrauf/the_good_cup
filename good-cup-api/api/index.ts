@@ -23,7 +23,8 @@ app.get('/', (c) => {
 
 // Default Vercel handler signature
 export default async function handler(req: Request, context: any) {
-    console.log(`[Manual Fetch Handler] Received Path: '${new URL(req.url).pathname}', Method: ${req.method}`);
+    // Log the path directly from req.url
+    console.log(`[Manual Fetch Handler] Received Path: '${req.url}', Method: ${req.method}`);
     // Manually invoke Hono's fetch handler
     return await app.fetch(req, process.env, context);
 } 
