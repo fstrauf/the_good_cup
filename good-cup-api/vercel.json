@@ -7,6 +7,20 @@
       "maxDuration": 10
     }
   },
+  "rewrites": [
+    {
+      "source": "/health",
+      "destination": "/api/health"
+    },
+    { "source": "/auth/(.*)", "destination": "/api/auth/$1" },
+    { "source": "/analyze-image", "destination": "/api/analyze-image" },
+    { "source": "/brew-suggestion", "destination": "/api/brew-suggestion" },
+    { "source": "/user", "destination": "/api/user" },
+    { "source": "/beans", "destination": "/api/beans" },
+    { "source": "/grinders", "destination": "/api/grinders" },
+    { "source": "/brew-devices", "destination": "/api/brew-devices" },
+    { "source": "/settings", "destination": "/api/settings" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
