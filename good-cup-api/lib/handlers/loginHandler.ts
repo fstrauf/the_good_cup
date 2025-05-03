@@ -1,13 +1,13 @@
-import * as schema from '../schema'; // Adjust path
+import * as schema from '../schema'; // Correct path relative to lib/
 import crypto from 'crypto'; // Keep for JWT helpers
 import { eq } from 'drizzle-orm';
 
 // Import shared DB
-import { db } from '../../lib/db'; // Adjust path relative to api/auth/
+import { db } from '../db'; // Correct path
 // Import shared Auth helpers
-import { JWT_SECRET, verifyPassword, createJwt } from '../../lib/auth'; // Adjust path
+import { JWT_SECRET, verifyPassword, createJwt } from '../auth'; // Correct path
 // Import shared Utils
-import { getBodyJSON } from '../../lib/utils'; // Adjust path
+import { getBodyJSON } from '../utils'; // Correct path
 
 // --- POST /api/auth/login Handler Logic ---
 export async function handleLogin(req: any, res: any) {

@@ -1,6 +1,6 @@
 import { drizzle, NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { neon, NeonQueryFunction } from '@neondatabase/serverless';
-import * as schema from '../api/schema'; // Adjust path relative to lib
+import * as schema from './schema'; // Adjust path relative to lib
 
 const connectionString = process.env.DATABASE_URL;
 

@@ -1,10 +1,10 @@
-import * as schema from './schema'; // Path relative to api/
+import * as schema from '../schema'; // Correct path relative to lib/
 import { eq } from 'drizzle-orm';
 
 // Import shared DB
-import { db } from '../lib/db'; // Path relative to api/
+import { db } from '../db'; // Path relative to handlers is ../db
 // Import shared Auth helpers
-import { verifyAuthToken } from '../lib/auth'; // Correct function name
+import { verifyAuthToken } from '../auth'; // Path relative to handlers is ../auth
 // Import shared Utils if needed (e.g., for error handling)
 // import { handleError } from '../lib/utils';
 
