@@ -2,24 +2,11 @@
   "version": 2,
   "public": true,
   "functions": {
-    "api/**/*": {
+    "api/index.ts": {
       "memory": 1024,
       "maxDuration": 10
     }
   },
-  "rewrites": [
-    {
-      "source": "/health",
-      "destination": "/api/health"
-    },
-    { "source": "/auth/(.*)", "destination": "/api/auth/$1" },
-    { "source": "/analyze-image", "destination": "/api/analyze-image" },
-    { "source": "/brew-suggestions", "destination": "/api/brew-suggestions" },
-    { "source": "/brew-suggestion", "destination": "/api/brew-suggestion" },
-    { "source": "/generic-brew-suggestion", "destination": "/api/generic-brew-suggestion" },
-    { "source": "/history-suggestion", "destination": "/api/history-suggestion" },
-    { "source": "/(.*)", "destination": "/api/$1" }
-  ],
   "headers": [
     {
       "source": "/(.*)",
