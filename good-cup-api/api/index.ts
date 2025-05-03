@@ -1,12 +1,26 @@
 // api/index.ts - Minimal Node.js Handler Test
 
-export default function handler(req: any, res: any) {
-  console.log(`[Minimal Handler] Received Path: '${req.url}', Method: ${req.method}`);
-  
-  // Immediately send a simple response
-  res.status(200).json({ 
-      message: "Minimal handler executed successfully!", 
-      path: req.url,
+import { Hono } from 'hono';
+import { handle } from 'hono/vercel';
+
+// Initialize Hono App
+const app = new Hono();
+
+// Health Check Route
+app.get('/api/health', (c) => {
+  console.log('[Hono /api/health] Route matched!');
+  return c.json({ 
+      status: 'OK', 
+      message: 'Hono is running!',
       timestamp: new Date().toISOString() 
   });
-} 
+});
+
+// Add a basic root handler just in case
+app.get('/', (c) => {
+    console.log('[Hono /] Root matched!');
+    return c.json({ message: 'Hono Root' });
+});
+
+// Export the Vercel handler
+export default handle(app); 
