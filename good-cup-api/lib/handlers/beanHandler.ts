@@ -2,8 +2,11 @@ import * as schema from '../schema'; // Correct path relative to lib/
 import { db } from '../db';
 import { eq, desc } from 'drizzle-orm';
 import { verifyAuthToken } from '../auth';
-import { getBodyJSON } from '../utils';
-import { URL, URLSearchParams } from 'url';
+// No longer need getBodyJSON from utils if using c.req.json()
+// import { getBodyJSON } from '../utils';
+// No longer need URL/URLSearchParams if using c.req.query()
+// import { URL, URLSearchParams } from 'url';
+import type { Context } from 'hono'; // Import Hono context type
 
 // Helper to parse potential comma-separated string to array
 const parseFlavorNotes = (notes: any): string[] | null => {
@@ -16,32 +19,28 @@ const parseFlavorNotes = (notes: any): string[] | null => {
     return null;
 };
 
-// --- GET /api/beans ---
-export async function handleGetBeans(req: any, res: any) {
+// --- GET /api/beans --- Accept Hono Context (c)
+export async function handleGetBeans(c: Context) {
     console.log('[beanHandler] GET handler invoked');
-    const authResult = await verifyAuthToken(req);
+    // Pass Hono request object (c.req) to verifyAuthToken
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
     
-    // Fetch beans ordered by creation date descending
     const beans = await db.select()
                         .from(schema.beansTable)
                         .where(eq(schema.beansTable.userId, authResult.userId))
                         .orderBy(desc(schema.beansTable.createdAt)); 
+    // Handler now just returns data, router sends JSON response
     return beans;
 }
 
-// --- GET /api/beans?id={id} ---
-export async function handleGetBeanById(req: any, res: any) {
+// --- GET /api/beans?id={id} --- Accept Hono Context (c)
+export async function handleGetBeanById(c: Context) {
     console.log('[beanHandler] GET by ID handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
-    const host = req.headers['host'] || 'localhost';
-    const protocol = req.headers['x-forwarded-proto'] || 'http';
-    const fullUrl = `${protocol}://${host}${req.url || '/'}`;
-    const url = new URL(fullUrl);
-    const beanId = url.searchParams.get('id');
-
+    const beanId = c.req.query('id'); // Get query param from Hono context
     if (!beanId) throw { status: 400, message: 'Bean ID is required in query parameters.' };
 
     const foundBeans = await db.select()
@@ -53,15 +52,13 @@ export async function handleGetBeanById(req: any, res: any) {
     return foundBeans[0];
 }
 
-// --- POST /api/beans ---
-export async function handleAddBean(req: any, res: any) {
+// --- POST /api/beans --- Accept Hono Context (c)
+export async function handleAddBean(c: Context) {
     console.log('[beanHandler] POST handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
-    const body = await getBodyJSON(req);
-    
-    // Validation (ensure name exists)
+    const body = await c.req.json(); // Get JSON body from Hono context
     if (!body.name || typeof body.name !== 'string') throw { status: 400, message: 'Bean name is required.' };
 
     const newBeanData = {
@@ -71,8 +68,8 @@ export async function handleAddBean(req: any, res: any) {
         origin: body.origin || null,
         process: body.process || null,
         roastLevel: body.roastLevel || null,
-        roastedDate: body.roastedDate || null, // Ensure date is handled correctly (ISO string?)
-        flavorNotes: parseFlavorNotes(body.flavorNotes), // Use helper
+        roastedDate: body.roastedDate || null,
+        flavorNotes: parseFlavorNotes(body.flavorNotes),
         imageUrl: body.imageUrl || null,
         description: body.description || null,
     };
@@ -85,24 +82,19 @@ export async function handleAddBean(req: any, res: any) {
     return result[0];
 }
 
-// --- PUT /api/beans?id={id} ---
-export async function handleUpdateBean(req: any, res: any) {
+// --- PUT /api/beans?id={id} --- Accept Hono Context (c)
+export async function handleUpdateBean(c: Context) {
     console.log('[beanHandler] PUT handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
-    const host = req.headers['host'] || 'localhost';
-    const protocol = req.headers['x-forwarded-proto'] || 'http';
-    const fullUrl = `${protocol}://${host}${req.url || '/'}`;
-    const url = new URL(fullUrl);
-    const beanId = url.searchParams.get('id');
+    const beanId = c.req.query('id'); // Get query param
     if (!beanId) throw { status: 400, message: 'Bean ID is required in query parameters.' };
 
-    const body = await getBodyJSON(req);
+    const body = await c.req.json(); // Get JSON body
     if (!body.name || typeof body.name !== 'string') throw { status: 400, message: 'Bean name is required.' };
 
-    // Prepare update data - let TypeScript infer the type
-    const updateData = {} as any; // Using `as any` temporarily to assign dynamic fields
+    const updateData = {} as any;
     if (body.name !== undefined) updateData.name = body.name;
     if (body.roaster !== undefined) updateData.roaster = body.roaster;
     if (body.origin !== undefined) updateData.origin = body.origin;
@@ -112,12 +104,11 @@ export async function handleUpdateBean(req: any, res: any) {
     if (body.flavorNotes !== undefined) updateData.flavorNotes = parseFlavorNotes(body.flavorNotes);
     if (body.imageUrl !== undefined) updateData.imageUrl = body.imageUrl;
     if (body.description !== undefined) updateData.description = body.description;
-    // Ensure only allowed fields are added
 
     if (Object.keys(updateData).length === 0) throw { status: 400, message: 'No update fields provided.' };
 
     const result = await db.update(schema.beansTable)
-                           .set(updateData) // Drizzle should handle the partial update correctly
+                           .set(updateData)
                            .where(eq(schema.beansTable.id, beanId) && eq(schema.beansTable.userId, authResult.userId))
                            .returning();
 
@@ -125,17 +116,13 @@ export async function handleUpdateBean(req: any, res: any) {
     return result[0];
 }
 
-// --- DELETE /api/beans?id={id} ---
-export async function handleDeleteBean(req: any, res: any) {
+// --- DELETE /api/beans?id={id} --- Accept Hono Context (c)
+export async function handleDeleteBean(c: Context) {
     console.log('[beanHandler] DELETE handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
-    const host = req.headers['host'] || 'localhost';
-    const protocol = req.headers['x-forwarded-proto'] || 'http';
-    const fullUrl = `${protocol}://${host}${req.url || '/'}`;
-    const url = new URL(fullUrl);
-    const beanId = url.searchParams.get('id');
+    const beanId = c.req.query('id'); // Get query param
     if (!beanId) throw { status: 400, message: 'Bean ID is required in query parameters.' };
 
     const deleteResult = await db.delete(schema.beansTable)

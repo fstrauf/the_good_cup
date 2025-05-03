@@ -83,18 +83,30 @@ export function verifyJwt(token: string, secret: string): { [key: string]: any }
     }
 }
 
+// Updated to work with Hono's request object (c.req)
+// Takes the Hono request object as input
 export async function verifyAuthToken(req: any): Promise<{ userId: string | null; error?: string; status?: number }> {
-  const authHeader = req.headers['authorization'];
-  if (!JWT_SECRET) { console.error('[AuthLib:Error] JWT_SECRET missing'); return { userId: null, error: 'Config Error', status: 500 }; }
-  if (!authHeader || !authHeader.startsWith('Bearer ')) { return { userId: null, error: 'Unauthorized: Missing/invalid token format', status: 401 }; }
+  // Access header using Hono's c.req.header() method
+  const authHeader = req.header('authorization'); 
+  
+  if (!JWT_SECRET) { 
+      console.error('[AuthLib:Error] JWT_SECRET missing'); 
+      return { userId: null, error: 'Config Error', status: 500 }; 
+  }
+  if (!authHeader || !authHeader.startsWith('Bearer ')) { 
+      return { userId: null, error: 'Unauthorized: Missing/invalid token format', status: 401 }; 
+  }
+  
   const token = authHeader.substring(7);
   try {
-    const payload = verifyJwt(token, JWT_SECRET);
-    if (!payload || !payload.userId) { return { userId: null, error: 'Unauthorized: Invalid token payload', status: 401 }; }
-    console.log(`[AuthLib:Success] User: ${payload.userId}`);
+    const payload = verifyJwt(token, JWT_SECRET); // verifyJwt remains the same
+    if (!payload || !payload.userId) { 
+        return { userId: null, error: 'Unauthorized: Invalid token payload', status: 401 }; 
+    }
+    console.log(`[AuthLib:Success] User Verified: ${payload.userId}`); // Log success
     return { userId: payload.userId as string };
   } catch (error) {
-    console.error('[AuthLib:Error] Failed:', error);
+    console.error('[AuthLib:Verify Error] Token verification failed:', error);
     const isExpired = error instanceof Error && error.message === 'JwtTokenExpired';
     return { userId: null, error: isExpired ? 'Unauthorized: Token expired' : 'Unauthorized: Invalid token', status: 401 };
   }

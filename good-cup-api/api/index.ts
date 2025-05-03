@@ -66,31 +66,50 @@ app.get('/health', (c) => {
 
 // --- Bean Routes ---
 app.get('/beans', async (c) => {
-    const id = c.req.query('id'); // Hono context provides easy query access
+    const id = c.req.query('id'); 
     console.log(`[Hono GET /beans] id query param: ${id}`);
-    if (id) {
-        // NOTE: Need to adjust handleGetBeanById if it expects req/res
-        // It's better if handlers just take necessary params (like id)
-        // For now, passing context might work if handler uses req.url
-        return c.json(await handleGetBeanById(c.req, null)); 
-    } else {
-        return c.json(await handleGetBeans(c.req, null)); // Pass null for res if unused
+    try {
+        if (id) {
+            const bean = await handleGetBeanById(c); // Pass full context c
+            return c.json(bean);
+        } else {
+            const beans = await handleGetBeans(c); // Pass full context c
+            return c.json(beans);
+        }
+    } catch (error: any) { 
+        console.error('[Hono /beans Error]:', error);
+        return c.json({ message: error.message || 'Internal Server Error' }, error.status || 500);
     }
 });
 
 app.post('/beans', async (c) => {
-    const result = await handleAddBean(c.req, null);
-    return c.json(result, 201); // Return 201 Created status
+    try {
+        const result = await handleAddBean(c); // Pass full context c
+        return c.json(result, 201); 
+    } catch (error: any) {
+        console.error('[Hono POST /beans Error]:', error);
+        return c.json({ message: error.message || 'Internal Server Error' }, error.status || 500);
+    }
 });
 
 app.put('/beans', async (c) => {
-    const result = await handleUpdateBean(c.req, null);
-    return c.json(result);
+    try {
+        const result = await handleUpdateBean(c); // Pass full context c
+        return c.json(result);
+    } catch (error: any) {
+        console.error('[Hono PUT /beans Error]:', error);
+        return c.json({ message: error.message || 'Internal Server Error' }, error.status || 500);
+    }
 });
 
 app.delete('/beans', async (c) => {
-    const result = await handleDeleteBean(c.req, null);
-    return c.json(result);
+    try {
+        const result = await handleDeleteBean(c); // Pass full context c
+        return c.json(result);
+    } catch (error: any) {
+        console.error('[Hono DELETE /beans Error]:', error);
+        return c.json({ message: error.message || 'Internal Server Error' }, error.status || 500);
+    }
 });
 
 // Catch-all for 404s within /api base path
@@ -98,12 +117,6 @@ app.notFound((c) => {
     console.warn(`[Hono Node Adapter] Not Found: ${c.req.method} ${c.req.url}`);
     return c.json({ message: 'API route not found within Hono app' }, 404)
 })
-
-// Error handler
-app.onError((err, c) => {
-    console.error('[Hono Node Adapter] Error:', err);
-    return c.json({ message: 'Internal Server Error' }, 500);
-});
 
 // --- Vercel Request Handler for ALL API routes ---
 export default handle(app); 
