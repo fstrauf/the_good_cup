@@ -1,30 +1,23 @@
-// api/index.ts - Minimal Node.js Handler Test
+// api/index.ts - Minimal Node.js Handler with Path Check
 
-import { Hono } from 'hono';
+export default function handler(req: any, res: any) {
+  console.log(`[Minimal Handler+] Received Path: '${req.url}', Method: ${req.method}`);
+  
+  // Explicitly check for the health path
+  if (req.url === '/api/health' && req.method === 'GET') {
+      console.log('[Minimal Handler+] Matched /api/health');
+      res.status(200).json({ 
+          message: "Minimal handler direct hit!", 
+          path: req.url,
+          timestamp: new Date().toISOString() 
+      });
+      return; // Important: Stop execution after sending response
+  }
 
-// Initialize Hono App
-const app = new Hono();
-
-// Health Check Route
-app.get('/api/health', (c) => {
-  console.log('[Hono /api/health] Route matched!');
-  return c.json({ 
-      status: 'OK', 
-      message: 'Hono is running (manual fetch)!',
-      timestamp: new Date().toISOString() 
+  // Handle any other path with 404
+  console.log(`[Minimal Handler+] Path '${req.url}' not handled.`);
+  res.status(404).json({ 
+      message: "Route not found by minimal handler",
+      path: req.url
   });
-});
-
-// Add a basic root handler just in case
-app.get('/', (c) => {
-    console.log('[Hono /] Root matched!');
-    return c.json({ message: 'Hono Root (manual fetch)' });
-});
-
-// Default Vercel handler signature
-export default async function handler(req: Request, context: any) {
-    // Log the path directly from req.url
-    console.log(`[Manual Fetch Handler] Received Path: '${req.url}', Method: ${req.method}`);
-    // Manually invoke Hono's fetch handler
-    return await app.fetch(req, process.env, context);
 } 
