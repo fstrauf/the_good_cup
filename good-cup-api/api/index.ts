@@ -8,12 +8,12 @@ import { handle } from 'hono/vercel';
 //   runtime: 'edge',
 // };
 
-// Initialize Hono App
-const app = new Hono().basePath('/api');
+// Initialize Hono App WITHOUT basePath
+const app = new Hono();
 
-// Simple Health Check Route
-app.get('/health', (c) => {
-  console.log('[Hono Router] /api/health hit'); // Add log
+// Simple Health Check Route - Match the full path
+app.get('/api/health', (c) => {
+  console.log('[Hono Router] /api/health route matched!'); // Updated log
   return c.json({ 
       status: 'OK', 
       message: 'Hono is running!',
@@ -21,7 +21,7 @@ app.get('/health', (c) => {
   });
 });
 
-// --- TODO: Add other routes here later --- 
+// --- TODO: Add other routes here later using full paths (e.g., /api/beans) ---
 // Example:
 // import { handleGetBeans } from '../lib/handlers/beanHandler'; 
 // app.get('/beans', async (c) => {
@@ -34,9 +34,9 @@ app.get('/health', (c) => {
 //    }
 // });
 
-// Catch-all for 404s within /api base path
+// Catch-all for 404s
 app.notFound((c) => {
-    console.warn(`[Hono Router] Not Found: ${c.req.method} ${c.req.url}`);
+    console.warn(`[Hono Router] Not Found (Full Path): ${c.req.method} ${c.req.url}`);
     return c.json({ message: 'API route not found within Hono app' }, 404)
 })
 
