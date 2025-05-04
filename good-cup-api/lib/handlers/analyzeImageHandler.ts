@@ -1,11 +1,10 @@
 import { verifyAuthToken } from '../auth';
-import { getBodyJSON } from '../utils';
 import { OpenAI } from 'openai';
 import type { Context } from 'hono';
 
 // Define expected request body structure
 interface AnalyzeImageRequest {
-    imageUrl: string;
+    image: string; // Changed from imageUrl
     prompt?: string; // Optional custom prompt
 }
 
@@ -31,8 +30,9 @@ export async function handleAnalyzeImage(c: Context): Promise<AnalyzeImageRespon
     try {
         const body: AnalyzeImageRequest = await c.req.json();
 
-        if (!body.imageUrl || typeof body.imageUrl !== 'string' || !body.imageUrl.startsWith('http')) {
-            throw { status: 400, message: 'Valid imageUrl is required.' };
+        // Validate the 'image' field (base64 string)
+        if (!body.image || typeof body.image !== 'string' || body.image.trim() === '') {
+            throw { status: 400, message: 'Valid base64 image string is required.' };
         }
 
         const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -40,7 +40,9 @@ export async function handleAnalyzeImage(c: Context): Promise<AnalyzeImageRespon
         const defaultPrompt = "Analyze this image of coffee beans. Describe their appearance, estimate the roast level (e.g., Light, Medium, Dark), and identify any visible defects or notable characteristics. Keep the description concise.";
         const userPrompt = body.prompt || defaultPrompt;
 
-        console.log(`[analyzeImageHandler] Analyzing image: ${body.imageUrl}`);
+        // Construct the data URI for OpenAI Vision API
+        const dataUri = `data:image/jpeg;base64,${body.image}`;
+        console.log(`[analyzeImageHandler] Analyzing image via data URI...`);
         
         const response = await openai.chat.completions.create({
             model: "gpt-4o", // Vision capabilities
@@ -51,7 +53,8 @@ export async function handleAnalyzeImage(c: Context): Promise<AnalyzeImageRespon
                         { type: "text", text: userPrompt },
                         {
                             type: "image_url",
-                            image_url: { url: body.imageUrl },
+                            // Pass the constructed data URI
+                            image_url: { url: dataUri }, 
                         },
                     ],
                 },
