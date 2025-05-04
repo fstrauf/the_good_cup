@@ -61,6 +61,21 @@ export async function handleAddBean(c: Context) {
     const body = await c.req.json(); // Get JSON body from Hono context
     if (!body.name || typeof body.name !== 'string') throw { status: 400, message: 'Bean name is required.' };
 
+    // Ensure roastedDate is a Date object if provided
+    let roastedDateValue: Date | null = null;
+    if (body.roastedDate && typeof body.roastedDate === 'string') {
+        roastedDateValue = new Date(body.roastedDate);
+        // Basic validation: Check if the date is valid after parsing
+        if (isNaN(roastedDateValue.getTime())) {
+            console.warn(`[beanHandler] Invalid roastedDate string received: ${body.roastedDate}`);
+            roastedDateValue = null; // Or throw an error if date must be valid
+            // throw { status: 400, message: 'Invalid roastedDate format.' }; 
+        }
+    } else if (body.roastedDate instanceof Date) {
+        // If it's somehow already a Date object (less likely via JSON)
+        roastedDateValue = body.roastedDate;
+    }
+
     const newBeanData = {
         userId: authResult.userId,
         name: body.name,
@@ -68,7 +83,7 @@ export async function handleAddBean(c: Context) {
         origin: body.origin || null,
         process: body.process || null,
         roastLevel: body.roastLevel || null,
-        roastedDate: body.roastedDate || null,
+        roastedDate: roastedDateValue, // Use the potentially converted Date object
         flavorNotes: parseFlavorNotes(body.flavorNotes),
         imageUrl: body.imageUrl || null,
         description: body.description || null,
