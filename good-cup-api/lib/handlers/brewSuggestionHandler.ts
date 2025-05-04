@@ -1,6 +1,7 @@
 import { verifyAuthToken } from '../auth';
 import { getBodyJSON } from '../utils';
 import { OpenAI } from 'openai'; // Use import for ES modules
+import type { Context } from 'hono';
 
 // Define expected request body structure (optional but good practice)
 interface BrewSuggestionRequest {
@@ -90,9 +91,9 @@ interface PreviousBrewData { // Keep interface definition
 }
 
 // --- POST /api/brew-suggestion ---
-export async function handleBrewSuggestion(req: any, res: any) {
+export async function handleBrewSuggestion(c: Context) {
     console.log('[brewSuggestionHandler] POST handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
     // Get OpenAI API key from environment
@@ -103,7 +104,7 @@ export async function handleBrewSuggestion(req: any, res: any) {
     }
 
     try {
-        const requestBody = await getBodyJSON(req); // Use helper
+        const requestBody = await c.req.json();
         const { currentBrew, previousBrews, selectedBeanName, currentGrinderName, beanName, brewMethod, roastLevel, flavorNotes, roastedDate, country, process, userComment } = requestBody;
         
         const openai = new OpenAI({ apiKey: OPENAI_API_KEY });

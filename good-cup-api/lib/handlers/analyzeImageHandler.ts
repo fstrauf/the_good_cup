@@ -1,6 +1,7 @@
 import { verifyAuthToken } from '../auth';
 import { getBodyJSON } from '../utils';
 import { OpenAI } from 'openai';
+import type { Context } from 'hono';
 
 // Define expected request body structure
 interface AnalyzeImageRequest {
@@ -15,9 +16,9 @@ interface AnalyzeImageResponse {
 }
 
 // --- POST /api/analyze-image Handler Logic ---
-export async function handleAnalyzeImage(req: any, res: any): Promise<AnalyzeImageResponse> {
+export async function handleAnalyzeImage(c: Context): Promise<AnalyzeImageResponse> {
     console.log('[analyzeImageHandler] POST handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
     // Get OpenAI API key
@@ -28,7 +29,7 @@ export async function handleAnalyzeImage(req: any, res: any): Promise<AnalyzeIma
     }
 
     try {
-        const body: AnalyzeImageRequest = await getBodyJSON(req);
+        const body: AnalyzeImageRequest = await c.req.json();
 
         if (!body.imageUrl || typeof body.imageUrl !== 'string' || !body.imageUrl.startsWith('http')) {
             throw { status: 400, message: 'Valid imageUrl is required.' };

@@ -1,13 +1,13 @@
-import * as schema from '../schema'; // Correct path relative to lib/
+import * as schema from '../schema';
 import { db } from '../db';
 import { eq } from 'drizzle-orm';
 import { verifyAuthToken } from '../auth';
-import { getBodyJSON } from '../utils';
+import type { Context } from 'hono';
 
 // --- GET /api/settings ---
-export async function handleGetSettings(req: any, res: any) {
+export async function handleGetSettings(c: Context) {
     console.log('[settingsHandler] GET handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
     const settings = await db.select()
@@ -28,12 +28,12 @@ export async function handleGetSettings(req: any, res: any) {
 }
 
 // --- PUT /api/settings ---
-export async function handleUpdateSettings(req: any, res: any) {
+export async function handleUpdateSettings(c: Context) {
     console.log('[settingsHandler] PUT handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
-    const body = await getBodyJSON(req);
+    const body = await c.req.json();
 
     // Validate that at least one setting is being provided
     if (body.defaultBrewDeviceId === undefined && body.defaultGrinderId === undefined) {

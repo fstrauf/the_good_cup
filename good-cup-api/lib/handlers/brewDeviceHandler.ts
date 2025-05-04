@@ -1,14 +1,13 @@
-import * as schema from '../schema'; // Correct path relative to lib/
+import * as schema from '../schema';
 import { db } from '../db';
 import { eq } from 'drizzle-orm';
 import { verifyAuthToken } from '../auth';
-import { getBodyJSON } from '../utils';
-import { URL, URLSearchParams } from 'url';
+import type { Context } from 'hono';
 
 // --- GET /api/brew-devices ---
-export async function handleGetBrewDevices(req: any, res: any) {
+export async function handleGetBrewDevices(c: Context) {
     console.log('[brewDeviceHandler] GET handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
     
     const devices = await db.select()
@@ -18,19 +17,19 @@ export async function handleGetBrewDevices(req: any, res: any) {
 }
 
 // --- POST /api/brew-devices ---
-export async function handleAddBrewDevice(req: any, res: any) {
+export async function handleAddBrewDevice(c: Context) {
     console.log('[brewDeviceHandler] POST handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
     
-    const { name, type, notes } = await getBodyJSON(req);
-    if (!name || typeof name !== 'string') throw { status: 400, message: 'Device name is required.' };
+    const body = await c.req.json();
+    if (!body.name || typeof body.name !== 'string') throw { status: 400, message: 'Device name is required.' };
     
     const newDeviceData = {
         userId: authResult.userId,
-        name,
-        type: type || null,
-        notes: notes || null,
+        name: body.name,
+        type: body.type || null,
+        notes: body.notes || null,
     };
     
     const result = await db.insert(schema.brewDevicesTable)
@@ -42,25 +41,21 @@ export async function handleAddBrewDevice(req: any, res: any) {
 }
 
 // --- PUT /api/brew-devices?id={id} ---
-export async function handleUpdateBrewDevice(req: any, res: any) {
+export async function handleUpdateBrewDevice(c: Context) {
     console.log('[brewDeviceHandler] PUT handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
-    const host = req.headers['host'] || 'localhost';
-    const protocol = req.headers['x-forwarded-proto'] || 'http';
-    const fullUrl = `${protocol}://${host}${req.url || '/'}`;
-    const url = new URL(fullUrl);
-    const deviceId = url.searchParams.get('id');
+    const deviceId = c.req.query('id');
     if (!deviceId) throw { status: 400, message: 'Device ID is required in query parameters.' };
 
-    const { name, type, notes } = await getBodyJSON(req);
-    if (!name || typeof name !== 'string') throw { status: 400, message: 'Device name is required.' };
+    const body = await c.req.json();
+    if (!body.name || typeof body.name !== 'string') throw { status: 400, message: 'Device name is required.' };
     
     const updateData = {
-        name,
-        type: type !== undefined ? type : null, 
-        notes: notes !== undefined ? notes : null,
+        name: body.name,
+        type: body.type !== undefined ? body.type : null, 
+        notes: body.notes !== undefined ? body.notes : null,
     };
 
     const result = await db.update(schema.brewDevicesTable)
@@ -73,16 +68,12 @@ export async function handleUpdateBrewDevice(req: any, res: any) {
 }
 
 // --- DELETE /api/brew-devices?id={id} ---
-export async function handleDeleteBrewDevice(req: any, res: any) {
+export async function handleDeleteBrewDevice(c: Context) {
     console.log('[brewDeviceHandler] DELETE handler invoked');
-    const authResult = await verifyAuthToken(req);
+    const authResult = await verifyAuthToken(c.req);
     if (!authResult.userId) throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
 
-    const host = req.headers['host'] || 'localhost';
-    const protocol = req.headers['x-forwarded-proto'] || 'http';
-    const fullUrl = `${protocol}://${host}${req.url || '/'}`;
-    const url = new URL(fullUrl);
-    const deviceId = url.searchParams.get('id');
+    const deviceId = c.req.query('id');
     if (!deviceId) throw { status: 400, message: 'Device ID is required in query parameters.' };
 
     const deleteResult = await db.delete(schema.brewDevicesTable)
