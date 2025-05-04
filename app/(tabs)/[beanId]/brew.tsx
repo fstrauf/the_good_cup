@@ -251,22 +251,46 @@ const HomeScreenComponent = () => {
 
   const loadEquipment = async () => {
     try {
-      console.log("[LoadEquipment] Fetching data from API...");
-      // Fetch all data concurrently
-      const [devicesData, grindersData, settingsData] = await Promise.all([
+      console.log("[LoadEquipment] Fetching data using Promise.allSettled...");
+      // Fetch all data concurrently, allowing individual failures
+      const results = await Promise.allSettled([
         api.getBrewDevices(),
         api.getGrinders(),
         api.getUserSettings()
       ]);
 
-      // Log fetched data *after* await
-      console.log("[LoadEquipment] Fetched Devices:", JSON.stringify(devicesData));
-      console.log("[LoadEquipment] Fetched Grinders:", JSON.stringify(grindersData));
-      console.log("[LoadEquipment] Fetched Settings:", JSON.stringify(settingsData));
+      // Process results individually
+      let devicesData: ApiBrewDevice[] = [];
+      let grindersData: ApiGrinder[] = [];
+      let settingsData: api.UserSettings | null = null;
 
-      // Set state with fetched data
-      setBrewDevices(devicesData || []); // Ensure it's an array
-      setGrinders(grindersData || []);   // Ensure it's an array
+      if (results[0].status === 'fulfilled') {
+        devicesData = results[0].value || [];
+        console.log("[LoadEquipment] Fetched Devices:", JSON.stringify(devicesData));
+      } else {
+        console.error("[LoadEquipment] Failed to fetch Brew Devices:", results[0].reason);
+      }
+
+      if (results[1].status === 'fulfilled') {
+        grindersData = results[1].value || [];
+        console.log("[LoadEquipment] Fetched Grinders:", JSON.stringify(grindersData));
+      } else {
+        console.error("[LoadEquipment] Failed to fetch Grinders:", results[1].reason);
+      }
+      
+      if (results[2].status === 'fulfilled') {
+        settingsData = results[2].value;
+        console.log("[LoadEquipment] Fetched Settings:", JSON.stringify(settingsData));
+      } else {
+         // If settings fail (e.g., 404), log it but don't crash device/grinder loading
+        console.warn("[LoadEquipment] Failed to fetch Settings (might be expected if none exist):", results[2].reason);
+        settingsData = null; // Ensure settingsData is null if fetch failed
+      }
+
+
+      // Set state with fetched data (even if some failed)
+      setBrewDevices(devicesData);
+      setGrinders(grindersData);
 
       const defaultDeviceId = settingsData?.defaultBrewDeviceId;
       const defaultGrinderId = settingsData?.defaultGrinderId;
@@ -275,27 +299,28 @@ const HomeScreenComponent = () => {
       console.log("[LoadEquipment] Default Grinder ID from Settings:", defaultGrinderId);
 
       // Set default selections if available AND if the default exists in the fetched list
-      if (defaultDeviceId && devicesData?.some((d: ApiBrewDevice) => d.id === defaultDeviceId)) {
+      // Check against the actual fetched data (devicesData/grindersData)
+      if (defaultDeviceId && devicesData.some((d: ApiBrewDevice) => d.id === defaultDeviceId)) {
         console.log(`[LoadEquipment] Setting selectedBrewDevice to: ${defaultDeviceId}`);
         setSelectedBrewDevice(defaultDeviceId);
       } else {
-        console.log("[LoadEquipment] No valid default brew device to set, or device not found in list.");
-        // Optionally clear selection if default is invalid/removed
-        // setSelectedBrewDevice(""); 
+        console.log("[LoadEquipment] No valid default brew device ID from settings, or device not found in list.");
+        setSelectedBrewDevice(""); // Clear selection if no valid default
       }
       
-      if (defaultGrinderId && grindersData?.some((g: ApiGrinder) => g.id === defaultGrinderId)) {
+      if (defaultGrinderId && grindersData.some((g: ApiGrinder) => g.id === defaultGrinderId)) {
         console.log(`[LoadEquipment] Setting selectedGrinder to: ${defaultGrinderId}`);
         setSelectedGrinder(defaultGrinderId);
       } else {
-        console.log("[LoadEquipment] No valid default grinder to set, or grinder not found in list.");
-         // Optionally clear selection
-        // setSelectedGrinder("");
+        console.log("[LoadEquipment] No valid default grinder ID from settings, or grinder not found in list.");
+        setSelectedGrinder(""); // Clear selection if no valid default
       }
 
     } catch (error) {
-      console.error("[LoadEquipment] Error loading equipment:", error);
-      // Set empty arrays on error to avoid issues with .map
+      // This catch block might now only catch errors during Promise.allSettled itself (unlikely)
+      // or during the processing of results. Individual fetch errors are logged above.
+      console.error("[LoadEquipment] Unexpected error during equipment loading process:", error);
+      // Fallback to empty arrays in case of unexpected error during processing
       setBrewDevices([]); 
       setGrinders([]);
       setSelectedBrewDevice("");
@@ -396,15 +421,20 @@ const HomeScreenComponent = () => {
   }, [timerInterval]);
 
   // Format brew devices and grinders for dropdown
-  const brewDeviceOptions: DropdownItem[] = brewDevices.map((device) => ({
-    label: device.name,
-    value: device.id,
-  }));
+  // Ensure brewDevices and grinders are arrays before mapping
+  const brewDeviceOptions: DropdownItem[] = Array.isArray(brewDevices) 
+    ? brewDevices.map((device) => ({
+        label: device.name,
+        value: device.id,
+      }))
+    : [];
 
-  const grinderOptions: DropdownItem[] = grinders.map((grinder) => ({
-    label: grinder.name,
-    value: grinder.id,
-  }));
+  const grinderOptions: DropdownItem[] = Array.isArray(grinders)
+    ? grinders.map((grinder) => ({
+        label: grinder.name,
+        value: grinder.id,
+      }))
+    : [];
 
   console.log("[Render] Brew Device Options:", brewDeviceOptions);
   console.log("[Render] Grinder Options:", grinderOptions);
