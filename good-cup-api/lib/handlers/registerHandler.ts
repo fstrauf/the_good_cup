@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 // Import shared Auth helpers
 import { JWT_SECRET, hashPassword, createJwt } from '../auth';
 // Import shared Utils
-import { getBodyJSON } from '../utils';
+// import { getBodyJSON } from '../utils';
 import type { Context } from 'hono';
 
 // --- POST /api/auth/register Handler Logic ---
