@@ -60,7 +60,7 @@ export async function handleAnalyzeImage(c: Context): Promise<Response> {
         throw { status: authResult.status || 401, message: authResult.error || 'Unauthorized' };
     }
     console.log(`[handleAnalyzeImage] Authenticated user: ${authResult.userId}`);
-    // userId is available if needed later: const userId = authResult.userId;
+    // const userId = authResult.userId;
 
     // --- Get OpenAI API Key --- 
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -68,20 +68,34 @@ export async function handleAnalyzeImage(c: Context): Promise<Response> {
         console.error("[handleAnalyzeImage] Missing OpenAI API key");
         throw { status: 500, message: 'Server configuration error: Missing OpenAI API key' };
     }
+    // --- Added Logging --- 
+    console.log("[handleAnalyzeImage] OpenAI API Key check passed.");
+    // --- End Added Logging --- 
 
     try {
         // --- Parse Request Body --- 
-        // Use c.req.json() for Hono
+        // --- Added Logging --- 
+        console.log("[handleAnalyzeImage] Attempting to parse request body...");
+        // --- End Added Logging --- 
         const body: AnalyzeImageRequest = await c.req.json(); 
         const { image } = body;
+        // --- Added Logging --- 
+        console.log("[handleAnalyzeImage] Request body parsed successfully.");
+        // --- End Added Logging --- 
         
         if (!image || typeof image !== 'string' || image.trim() === '') {
             console.warn('[handleAnalyzeImage] Bad Request: Missing or invalid image data');
             throw { status: 400, message: 'Missing required parameter: image (must be a non-empty base64 string)' };
         }
+        // --- Added Logging --- 
+        console.log("[handleAnalyzeImage] Image data validated.");
+        // --- End Added Logging --- 
 
         // --- OpenAI API Call (Keep prompt and model as pasted) --- 
         const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+        // --- Added Logging --- 
+        console.log("[handleAnalyzeImage] OpenAI client initialized.");
+        // --- End Added Logging --- 
 
         // --- DO NOT CHANGE THIS PROMPT --- 
         const prompt = `Analyze this coffee bean package image and extract the following information:
@@ -127,6 +141,10 @@ If any information is not visible or cannot be determined from the image, use nu
         });
 
         const messageContent = response.choices[0]?.message?.content;
+        // --- Added Logging --- 
+        console.log('[handleAnalyzeImage] Raw messageContent from OpenAI:', messageContent);
+        // --- End Added Logging --- 
+
         if (!messageContent) {
             console.error('[handleAnalyzeImage] No message content received from OpenAI API');
             throw { status: 500, message: 'No message content received from OpenAI API' };
@@ -135,6 +153,10 @@ If any information is not visible or cannot be determined from the image, use nu
         console.log('[handleAnalyzeImage] Received response from OpenAI, attempting to extract JSON.');
         // --- Use the existing extractJson function --- 
         const jsonResponse: AnalyzeImageResponse | null = extractJson(messageContent);
+
+        // --- Added Logging --- 
+        console.log('[handleAnalyzeImage] Result of extractJson:', jsonResponse);
+        // --- End Added Logging --- 
 
         if (jsonResponse) {
             console.log('[handleAnalyzeImage] Successfully extracted JSON response.');
