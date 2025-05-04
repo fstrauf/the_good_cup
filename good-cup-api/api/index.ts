@@ -252,22 +252,32 @@ app.post('/auth/login', async (c) => {
 // --- Brew Suggestion Route ---
 app.post('/brew-suggestion', async (c) => {
     try {
-        const result = await handleBrewSuggestion(c);
-        return c.json(result);
+        // Directly return the Response object from the handler
+        return await handleBrewSuggestion(c);
     } catch (error: any) {
+        // Handle structured errors thrown by the handler
         console.error('[Hono POST /brew-suggestion Error]:', error);
-        return c.json({ message: error.message || 'Internal Server Error' }, error.status || 500);
+        const status = typeof error.status === 'number' ? error.status : 500;
+        const message = error.message || 'Internal Server Error';
+        // Optionally include details if available (e.g., rawResponse from OpenAI parse errors)
+        const details = error.details || error.rawResponse;
+        return c.json({ message, details }, status);
     }
 });
 
 // --- Analyze Image Route ---
 app.post('/analyze-image', async (c) => {
     try {
-        const result = await handleAnalyzeImage(c);
-        return c.json(result);
+        // Directly return the Response object from the handler
+        return await handleAnalyzeImage(c);
     } catch (error: any) {
+        // Handle structured errors thrown by the handler
         console.error('[Hono POST /analyze-image Error]:', error);
-        return c.json({ message: error.message || 'Internal Server Error' }, error.status || 500);
+        const status = typeof error.status === 'number' ? error.status : 500;
+        const message = error.message || 'Internal Server Error';
+        // Optionally include details if available
+        const details = error.details || error.rawResponse;
+        return c.json({ message, details }, status);
     }
 });
 

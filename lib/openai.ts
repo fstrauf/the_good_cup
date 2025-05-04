@@ -202,18 +202,48 @@ export const analyzeImage = async (
       body: JSON.stringify({ image: rawBase64 }), // Send raw base64
     });
 
-    const data = await response.json();
+    // --- Debugging: Log response headers --- 
+    const headersObject = {};
+    response.headers.forEach((value: string, key: string) => {
+      (headersObject as any)[key] = value; 
+    });
+    console.log('[openai.ts] Response headers received:', JSON.stringify(headersObject));
+    // --- End Debugging ---
+
+    // --- Debugging: Read raw text first --- 
+    const rawText = await response.text();
+    console.log('[openai.ts] Raw response text received:', rawText);
+    // --- End Debugging --- 
+
+    // --- Parse the raw text --- 
+    let data = {}; // Default to empty object in case of parsing error
+    try {
+        data = JSON.parse(rawText);
+    } catch (parseError) {
+        console.error('[openai.ts] Failed to parse response text as JSON:', parseError);
+        // If parsing fails, we need to decide how to handle it.
+        // For now, we will still check response.ok but data might be {}.
+        // Throwing here might be better if JSON is always expected on success.
+        if (response.ok) {
+           // If status was OK but parsing failed, throw a specific error
+           throw new Error('Received non-JSON response from server despite OK status.');
+        } 
+        // If status was not OK, the error will be handled below based on response.ok
+    }
+    // --- End Parsing --- 
 
     if (!response.ok) {
-      console.error('Backend /analyze-image error:', data);
+      console.error('Backend /analyze-image error status:', response.status, 'Parsed Body:', data);
       if (response.status === 401) {
         throw new Error('Unauthorized: Authentication failed. Please sign in again.');
       }
-      throw new Error(data.error || 'Failed to analyze image via server.');
+      // Try to get error message from parsed data, falling back to status text
+      const errorMessage = (data as any)?.message || response.statusText || 'Failed to analyze image via server.';
+      throw new Error(errorMessage);
     }
 
-    console.log('Received image analysis from backend:', data);
-    return data; // Return the JSON data directly
+    console.log('[openai.ts] Parsed image analysis data from backend:', data); // Log the parsed data
+    return data; // Return the parsed data
 
   } catch (error) {
     console.error('Error fetching /analyze-image:', error);
